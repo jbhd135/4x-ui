@@ -1,0 +1,161 @@
+package job
+
+import (
+	"regexp"
+	"strconv"
+	"time"
+
+	"github.com/mhsanaei/3x-ui/v2/logger"
+	"github.com/mhsanaei/3x-ui/v2/web/service"
+)
+
+var remarkDateTokens = regexp.MustCompile(`\d+`)
+
+// InboundRemarkExpiryJob deletes legacy inbounds whose remark contains an
+// expired date and removes expired clients from shared inbounds.
+type InboundRemarkExpiryJob struct {
+	inboundService service.InboundService
+	settingService service.SettingService
+	xrayService    *service.XrayService
+}
+
+func NewInboundRemarkExpiryJob(xrayService *service.XrayService) *InboundRemarkExpiryJob {
+	return &InboundRemarkExpiryJob{xrayService: xrayService}
+}
+
+func (j *InboundRemarkExpiryJob) Run() {
+	inboundMaintenanceLock.Lock()
+	defer inboundMaintenanceLock.Unlock()
+
+	now := time.Now()
+	if loc, err := j.settingService.GetTimeLocation(); err == nil && loc != nil {
+		now = now.In(loc)
+	} else if err != nil {
+		logger.Warning("inbound remark expiry: get time location failed:", err)
+	}
+	inbounds, err := j.inboundService.GetAllInbounds()
+	if err != nil {
+		logger.Warning("inbound remark expiry: get inbounds failed:", err)
+		return
+	}
+
+	deleted := 0
+	deletedClients := 0
+	needRestart := false
+	for _, inbound := range inbounds {
+		if inbound == nil {
+			continue
+		}
+		if remarkDateDue(inbound.Remark, now) {
+			restart, err := j.inboundService.DelInbound(inbound.Id)
+			if err != nil {
+				logger.Warningf("inbound remark expiry: delete inbound %d (%s) failed: %v", inbound.Id, inbound.Remark, err)
+				continue
+			}
+			deleted++
+			if restart {
+				needRestart = true
+			}
+			logger.Infof("inbound remark expiry: deleted inbound %d with remark %q", inbound.Id, inbound.Remark)
+			continue
+		}
+
+		clients, err := j.inboundService.GetClients(inbound)
+		if err != nil {
+			logger.Warningf("client expiry: get clients for inbound %d failed: %v", inbound.Id, err)
+			continue
+		}
+		for _, client := range clients {
+			if client.Email == "" || !clientExpiryDue(client.ExpiryTime, now) {
+				continue
+			}
+			restart, err := j.inboundService.DelInboundClientByEmail(inbound.Id, client.Email)
+			if err != nil {
+				logger.Warningf("client expiry: delete client %q from inbound %d failed: %v", client.Email, inbound.Id, err)
+				continue
+			}
+			deletedClients++
+			if restart {
+				needRestart = true
+			}
+			logger.Infof("client expiry: deleted client %q from inbound %d", client.Email, inbound.Id)
+		}
+	}
+
+	if needRestart && j.xrayService != nil {
+		j.xrayService.SetToNeedRestart()
+	}
+	if deleted > 0 {
+		logger.Infof("inbound remark expiry: deleted %d inbound(s)", deleted)
+	}
+	if deletedClients > 0 {
+		logger.Infof("client expiry: deleted %d expired client(s)", deletedClients)
+	}
+}
+
+func clientExpiryDue(expiryTime int64, now time.Time) bool {
+	return expiryTime > 0 && expiryTime <= now.UnixMilli()
+}
+
+func remarkDateDue(remark string, now time.Time) bool {
+	if remark == "" {
+		return false
+	}
+
+	currentMonth := int(now.Month())
+	currentDay := now.Day()
+	currentLastDay := lastDayOfMonth(now.Year(), now.Month(), now.Location())
+
+	for _, token := range remarkDateTokens.FindAllString(remark, -1) {
+		mmdd := token
+		switch len(token) {
+		case 4:
+		case 6:
+			tokenYear, err := strconv.Atoi(token[:2])
+			if err != nil || 2000+tokenYear != now.Year() {
+				continue
+			}
+			mmdd = token[2:]
+		case 8:
+			tokenYear, err := strconv.Atoi(token[:4])
+			if err != nil || tokenYear != now.Year() {
+				continue
+			}
+			mmdd = token[4:]
+		default:
+			continue
+		}
+
+		tokenMonth, err := strconv.Atoi(mmdd[:2])
+		if err != nil || tokenMonth < 1 || tokenMonth > 12 {
+			continue
+		}
+		tokenDay, err := strconv.Atoi(mmdd[2:])
+		if err != nil || tokenDay < 1 || tokenDay > 31 {
+			continue
+		}
+
+		if tokenMonth < currentMonth {
+			return true
+		}
+		if tokenMonth > currentMonth {
+			continue
+		}
+
+		if tokenDay <= currentDay {
+			return true
+		}
+
+		if currentDay == currentLastDay && tokenDay > currentLastDay {
+			return true
+		}
+	}
+	return false
+}
+
+func lastDayOfMonth(year int, month time.Month, loc *time.Location) int {
+	if loc == nil {
+		loc = time.Local
+	}
+	return time.Date(year, month+1, 0, 0, 0, 0, 0, loc).Day()
+}

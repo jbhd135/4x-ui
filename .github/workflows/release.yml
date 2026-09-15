@@ -1,0 +1,32 @@
+name: 4x-ui Checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.3'
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: bash -n install.sh update.sh scripts/install-selfhosted.sh scripts/package-release.sh
+      - run: shellcheck install.sh update.sh scripts/install-selfhosted.sh scripts/package-release.sh
+      - name: Compile source snapshot (not the production release binary)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+          CC=musl-gcc CGO_ENABLED=1 go build -trimpath -ldflags '-linkmode external -extldflags -static' -o dist/x-ui .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-build-linux-amd64
+          path: dist/x-ui
+
+# v4.0.0 preserves the exact verified production executable. Publishing is
+# deliberate/manual; a source-build workflow must not overwrite that asset.
