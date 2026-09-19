@@ -195,7 +195,7 @@ func TestMigrateLegacyDailyTrafficLimits(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := (&InboundService{}).migrateLegacyDailyTrafficLimits(); err != nil {
+	if err := (&InboundService{}).MigrateLegacyDailyTrafficLimits(); err != nil {
 		t.Fatal(err)
 	}
 

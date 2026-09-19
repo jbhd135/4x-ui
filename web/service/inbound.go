@@ -3718,13 +3718,15 @@ func (s *InboundService) MigrationRequirements() {
 
 func (s *InboundService) MigrateDB() {
 	s.MigrationRequirements()
-	if err := s.migrateLegacyDailyTrafficLimits(); err != nil {
+	if err := s.MigrateLegacyDailyTrafficLimits(); err != nil {
 		logger.Warningf("Daily traffic limit migration failed: %v", err)
 	}
 	s.MigrationRemoveOrphanedTraffics()
 }
 
-func (s *InboundService) migrateLegacyDailyTrafficLimits() error {
+// MigrateLegacyDailyTrafficLimits maps removed allowance choices upward so
+// existing clients remain selectable without receiving a stricter limit.
+func (s *InboundService) MigrateLegacyDailyTrafficLimits() error {
 	db := database.GetDB()
 	return db.Transaction(func(tx *gorm.DB) error {
 		migrations := []struct {

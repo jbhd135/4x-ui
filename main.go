@@ -50,6 +50,9 @@ func runWebServer() {
 	if err != nil {
 		log.Fatalf("Error initializing database: %v", err)
 	}
+	if err := (&service.InboundService{}).MigrateLegacyDailyTrafficLimits(); err != nil {
+		log.Fatalf("Error migrating daily traffic limits: %v", err)
+	}
 
 	var server *web.Server
 	server = web.NewServer()

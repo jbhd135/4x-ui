@@ -2,7 +2,7 @@
 
 gg 现用面板的独立发行项目。保留当前功能，提供新 VPS 一键安装；不会覆盖原来的 GitHub 项目。
 
-当前版本 `v4.0.2` 将手动日限额统一为 `10G / 20G / 30G / 无限`，并保留了客户端无限额度的持久化修复。来源和构建说明见 [PROVENANCE.md](PROVENANCE.md)。
+当前版本 `v4.0.3` 将手动日限额统一为 `10G / 20G / 30G / 无限`，升级启动时会自动迁移旧档位，并保留客户端无限额度的持久化修复。来源和构建说明见 [PROVENANCE.md](PROVENANCE.md)。
 
 ## 一键安装
 
@@ -25,7 +25,7 @@ bash /tmp/4x-ui-install.sh --yes --no-config-prompt
 指定版本或登录地址参数：
 
 ```bash
-bash /tmp/4x-ui-install.sh --version v4.0.2 --port 7878 --web-base-path /panel/ --public-host panel.example.com
+bash /tmp/4x-ui-install.sh --version v4.0.3 --port 7878 --web-base-path /panel/ --public-host panel.example.com
 ```
 
 ## 保留的功能
