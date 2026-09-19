@@ -108,10 +108,10 @@
     :disabled="!!clientDailyTrafficLimitSaving[client.email]" :style="{ width: '76px' }"
     :dropdown-class-name="themeSwitcher.currentTheme" @click.native.stop
     @change="value => updateClientDailyTrafficLimit(record, client, value)">
-    <a-select-option :value="5 * SizeFormatter.ONE_GB">5G</a-select-option>
     <a-select-option :value="10 * SizeFormatter.ONE_GB">10G</a-select-option>
-    <a-select-option :value="15 * SizeFormatter.ONE_GB">15G</a-select-option>
-    <a-select-option :value="0">∞</a-select-option>
+    <a-select-option :value="20 * SizeFormatter.ONE_GB">20G</a-select-option>
+    <a-select-option :value="30 * SizeFormatter.ONE_GB">30G</a-select-option>
+    <a-select-option :value="0">无限</a-select-option>
   </a-select>
 </template>
 <template slot="traffic" slot-scope="text, client">
@@ -416,10 +416,10 @@
             :disabled="!!clientDailyTrafficLimitSaving[client.email]"
             :dropdown-class-name="themeSwitcher.currentTheme" @click.native.stop
             @change="value => updateClientDailyTrafficLimit(record, client, value)">
-            <a-select-option :value="5 * SizeFormatter.ONE_GB">5G</a-select-option>
             <a-select-option :value="10 * SizeFormatter.ONE_GB">10G</a-select-option>
-            <a-select-option :value="15 * SizeFormatter.ONE_GB">15G</a-select-option>
-            <a-select-option :value="0">∞</a-select-option>
+            <a-select-option :value="20 * SizeFormatter.ONE_GB">20G</a-select-option>
+            <a-select-option :value="30 * SizeFormatter.ONE_GB">30G</a-select-option>
+            <a-select-option :value="0">无限</a-select-option>
           </a-select>
         </div>
       </div>

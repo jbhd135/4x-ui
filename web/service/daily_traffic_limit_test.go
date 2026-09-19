@@ -15,11 +15,11 @@ import (
 )
 
 func TestDailyClientTrafficThreshold(t *testing.T) {
-	if got, want := dailyClientTrafficThreshold(dailyClientTrafficLimitBytes, 0), int64(5*1024*1024*1024); got != want {
+	if got, want := dailyClientTrafficThreshold(dailyClientTrafficLimit10GBBytes, 0), int64(10*1024*1024*1024); got != want {
 		t.Fatalf("default daily threshold = %d, want %d", got, want)
 	}
-	override := int64(8 * 1024 * 1024 * 1024)
-	if got := dailyClientTrafficThreshold(dailyClientTrafficLimit10GBBytes, override); got != override {
+	override := int64(25 * 1024 * 1024 * 1024)
+	if got := dailyClientTrafficThreshold(dailyClientTrafficLimit20GBBytes, override); got != override {
 		t.Fatalf("manual override threshold = %d, want %d", got, override)
 	}
 	if got := dailyClientTrafficThreshold(0, 0); got != 0 {
@@ -28,7 +28,7 @@ func TestDailyClientTrafficThreshold(t *testing.T) {
 }
 
 func TestDailyClientTrafficLimitReached(t *testing.T) {
-	limit := dailyClientTrafficLimitBytes
+	limit := dailyClientTrafficLimit10GBBytes
 	if dailyClientTrafficLimitReached(limit-1, limit, 0) {
 		t.Fatal("traffic below the default limit should remain enabled")
 	}
@@ -44,6 +44,29 @@ func TestDailyClientTrafficLimitReached(t *testing.T) {
 	}
 	if dailyClientTrafficLimitReached(override, 0, 0) {
 		t.Fatal("unlimited daily traffic should never be blocked")
+	}
+}
+
+func TestValidDailyClientTrafficLimit(t *testing.T) {
+	for _, limit := range []int64{
+		0,
+		dailyClientTrafficLimit10GBBytes,
+		dailyClientTrafficLimit20GBBytes,
+		dailyClientTrafficLimit30GBBytes,
+	} {
+		if !validDailyClientTrafficLimit(limit) {
+			t.Fatalf("supported daily traffic limit %d was rejected", limit)
+		}
+	}
+
+	for _, limit := range []int64{
+		legacyDailyClientTrafficLimit5GBBytes,
+		legacyDailyClientTrafficLimit15GBBytes,
+		7 * 1024 * 1024 * 1024,
+	} {
+		if validDailyClientTrafficLimit(limit) {
+			t.Fatalf("unsupported daily traffic limit %d was accepted", limit)
+		}
 	}
 }
 
@@ -128,6 +151,85 @@ func TestAddClientStatAssignsDefaultDailyLimit(t *testing.T) {
 	}
 }
 
+func TestMigrateLegacyDailyTrafficLimits(t *testing.T) {
+	setupDailyTrafficTestDB(t)
+
+	inbounds := []model.Inbound{
+		{
+			Tag:               "legacy-5gb-daily-limit-inbound",
+			Port:              23462,
+			Protocol:          model.VMESS,
+			DailyTrafficLimit: legacyDailyClientTrafficLimit5GBBytes,
+			Settings:          `{"clients":[]}`,
+		},
+		{
+			Tag:               "legacy-15gb-daily-limit-inbound",
+			Port:              23463,
+			Protocol:          model.VMESS,
+			DailyTrafficLimit: legacyDailyClientTrafficLimit15GBBytes,
+			Settings:          `{"clients":[]}`,
+		},
+		{
+			Tag:               "unlimited-daily-limit-inbound",
+			Port:              23464,
+			Protocol:          model.VMESS,
+			DailyTrafficLimit: 0,
+			Settings:          `{"clients":[]}`,
+		},
+	}
+	if err := database.GetDB().Create(&inbounds).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.GetDB().Model(&model.Inbound{}).
+		Where("id = ?", inbounds[2].Id).
+		Update("daily_traffic_limit", 0).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	clients := []xray.ClientTraffic{
+		{InboundId: inbounds[0].Id, Email: "legacy-5gb-client", DailyTrafficLimit: legacyDailyClientTrafficLimit5GBBytes},
+		{InboundId: inbounds[1].Id, Email: "legacy-15gb-client", DailyTrafficLimit: legacyDailyClientTrafficLimit15GBBytes},
+		{InboundId: inbounds[2].Id, Email: "unlimited-client", DailyTrafficLimit: 0},
+	}
+	if err := database.GetDB().Create(&clients).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := (&InboundService{}).migrateLegacyDailyTrafficLimits(); err != nil {
+		t.Fatal(err)
+	}
+
+	inboundLimits := map[string]int64{
+		"legacy-5gb-daily-limit-inbound":  dailyClientTrafficLimit10GBBytes,
+		"legacy-15gb-daily-limit-inbound": dailyClientTrafficLimit20GBBytes,
+		"unlimited-daily-limit-inbound":   0,
+	}
+	for tag, want := range inboundLimits {
+		var inbound model.Inbound
+		if err := database.GetDB().Where("tag = ?", tag).First(&inbound).Error; err != nil {
+			t.Fatal(err)
+		}
+		if inbound.DailyTrafficLimit != want {
+			t.Fatalf("inbound %q daily limit = %d, want %d", tag, inbound.DailyTrafficLimit, want)
+		}
+	}
+
+	clientLimits := map[string]int64{
+		"legacy-5gb-client":  dailyClientTrafficLimit10GBBytes,
+		"legacy-15gb-client": dailyClientTrafficLimit20GBBytes,
+		"unlimited-client":   0,
+	}
+	for email, want := range clientLimits {
+		var client xray.ClientTraffic
+		if err := database.GetDB().Where("email = ?", email).First(&client).Error; err != nil {
+			t.Fatal(err)
+		}
+		if client.DailyTrafficLimit != want {
+			t.Fatalf("client %q daily limit = %d, want %d", email, client.DailyTrafficLimit, want)
+		}
+	}
+}
+
 func setupDailyTrafficTestDB(t *testing.T) {
 	t.Helper()
 	dbDir := t.TempDir()
@@ -193,7 +295,7 @@ func TestDisableInvalidClientsByDailyTrafficLimit(t *testing.T) {
 		Port:              23456,
 		Protocol:          model.VMESS,
 		Enable:            true,
-		DailyTrafficLimit: dailyClientTrafficLimitBytes,
+		DailyTrafficLimit: dailyClientTrafficLimit10GBBytes,
 		Settings:          string(settings),
 	}
 	if err := database.GetDB().Create(inbound).Error; err != nil {
@@ -203,7 +305,7 @@ func TestDisableInvalidClientsByDailyTrafficLimit(t *testing.T) {
 		InboundId:         inbound.Id,
 		Email:             "daily-limit-test",
 		Enable:            true,
-		DailyTrafficLimit: dailyClientTrafficLimitBytes,
+		DailyTrafficLimit: dailyClientTrafficLimit10GBBytes,
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +313,7 @@ func TestDisableInvalidClientsByDailyTrafficLimit(t *testing.T) {
 		InboundId:         inbound.Id,
 		Email:             "daily-limit-other",
 		Enable:            true,
-		DailyTrafficLimit: dailyClientTrafficLimitBytes,
+		DailyTrafficLimit: dailyClientTrafficLimit10GBBytes,
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -220,7 +322,7 @@ func TestDisableInvalidClientsByDailyTrafficLimit(t *testing.T) {
 		Date:        today,
 		InboundId:   inbound.Id,
 		ClientEmail: "daily-limit-test",
-		Down:        dailyClientTrafficLimitBytes,
+		Down:        dailyClientTrafficLimit10GBBytes,
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -384,7 +486,7 @@ func TestUpdateInboundDailyTrafficLimitRestoresAndBlocks(t *testing.T) {
 		InboundId:         inbound.Id,
 		Email:             "daily-limit-selection-client",
 		Enable:            true,
-		DailyTrafficLimit: dailyClientTrafficLimitBytes,
+		DailyTrafficLimit: dailyClientTrafficLimit10GBBytes,
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -392,26 +494,34 @@ func TestUpdateInboundDailyTrafficLimitRestoresAndBlocks(t *testing.T) {
 		Date:        today,
 		InboundId:   inbound.Id,
 		ClientEmail: "daily-limit-selection-client",
-		Down:        6 * 1024 * 1024 * 1024,
+		Down:        25 * 1024 * 1024 * 1024,
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
 
 	service := &InboundService{}
-	updated, needRestart, err := service.UpdateClientDailyTrafficLimit(inbound.Id, "daily-limit-selection-client", dailyClientTrafficLimit10GBBytes)
+	updated, needRestart, err := service.UpdateClientDailyTrafficLimit(inbound.Id, "daily-limit-selection-client", dailyClientTrafficLimit30GBBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if needRestart || !updated.Enable || updated.DailyBlockedDate != "" {
-		t.Fatalf("10 GB selection should leave the client enabled: restart=%v enable=%v blocked=%q", needRestart, updated.Enable, updated.DailyBlockedDate)
+		t.Fatalf("30 GB selection should leave the client enabled: restart=%v enable=%v blocked=%q", needRestart, updated.Enable, updated.DailyBlockedDate)
 	}
 
-	updated, needRestart, err = service.UpdateClientDailyTrafficLimit(inbound.Id, "daily-limit-selection-client", dailyClientTrafficLimitBytes)
+	updated, needRestart, err = service.UpdateClientDailyTrafficLimit(inbound.Id, "daily-limit-selection-client", dailyClientTrafficLimit20GBBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !needRestart || updated.Enable || updated.DailyBlockedDate != today {
-		t.Fatalf("5 GB selection should block the client: restart=%v enable=%v blocked=%q", needRestart, updated.Enable, updated.DailyBlockedDate)
+		t.Fatalf("20 GB selection should block the client: restart=%v enable=%v blocked=%q", needRestart, updated.Enable, updated.DailyBlockedDate)
+	}
+
+	updated, needRestart, err = service.UpdateClientDailyTrafficLimit(inbound.Id, "daily-limit-selection-client", dailyClientTrafficLimit10GBBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if needRestart || updated.Enable || updated.DailyBlockedDate != today {
+		t.Fatalf("10 GB selection should leave the client blocked: restart=%v enable=%v blocked=%q", needRestart, updated.Enable, updated.DailyBlockedDate)
 	}
 
 	updated, needRestart, err = service.UpdateClientDailyTrafficLimit(inbound.Id, "daily-limit-selection-client", 0)
@@ -454,8 +564,10 @@ func TestUpdateInboundDailyTrafficLimitRestoresAndBlocks(t *testing.T) {
 		t.Fatalf("API list unlimited limit = %d, want 0", got)
 	}
 
-	if _, _, err := service.UpdateClientDailyTrafficLimit(inbound.Id, "daily-limit-selection-client", 7*1024*1024*1024); err == nil {
-		t.Fatal("unsupported daily traffic limit should be rejected")
+	for _, limit := range []int64{legacyDailyClientTrafficLimit5GBBytes, legacyDailyClientTrafficLimit15GBBytes} {
+		if _, _, err := service.UpdateClientDailyTrafficLimit(inbound.Id, "daily-limit-selection-client", limit); err == nil {
+			t.Fatalf("unsupported daily traffic limit %d should be rejected", limit)
+		}
 	}
 }
 

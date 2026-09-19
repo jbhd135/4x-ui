@@ -2,7 +2,7 @@
 
 gg 现用面板的独立发行项目。保留当前功能，提供新 VPS 一键安装；不会覆盖原来的 GitHub 项目。
 
-当前版本 `v4.0.1` 修复了客户端日限额设为无限后又被周期流量统计写回 10G 的问题。来源和构建说明见 [PROVENANCE.md](PROVENANCE.md)。
+当前版本 `v4.0.2` 将手动日限额统一为 `10G / 20G / 30G / 无限`，并保留了客户端无限额度的持久化修复。来源和构建说明见 [PROVENANCE.md](PROVENANCE.md)。
 
 ## 一键安装
 
@@ -25,12 +25,12 @@ bash /tmp/4x-ui-install.sh --yes --no-config-prompt
 指定版本或登录地址参数：
 
 ```bash
-bash /tmp/4x-ui-install.sh --version v4.0.1 --port 7878 --web-base-path /panel/ --public-host panel.example.com
+bash /tmp/4x-ui-install.sh --version v4.0.2 --port 7878 --web-base-path /panel/ --public-host panel.example.com
 ```
 
 ## 保留的功能
 
-- 共享 Reality 入站与独立客户端，设备数、日限额、到期管理。
+- 共享 Reality 入站与独立客户端，设备数、`10G / 20G / 30G / 无限`日限额、到期管理。
 - 自定义名称、MMDD / YYYYMMDD 日期及 1、3、6、12 个月快捷选项。
 - 节点名称包含到期日期及客户后缀，便于检索客户。
 - 普通订阅、Clash 订阅及二维码，移动端客户信息。

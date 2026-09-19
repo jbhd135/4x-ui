@@ -67,15 +67,17 @@ type CopyClientsResult struct {
 const (
 	// The daily allowance is measured as upload plus download. A manual
 	// re-enable grants one additional allowance for the same day.
-	dailyClientTrafficLimitGB        int64 = 5
-	dailyClientTrafficLimitBytes           = dailyClientTrafficLimitGB * 1024 * 1024 * 1024
-	dailyClientTrafficLimit10GBBytes       = 10 * 1024 * 1024 * 1024
-	dailyClientTrafficLimit15GBBytes       = 15 * 1024 * 1024 * 1024
+	dailyClientTrafficLimit10GBBytes int64 = 10 * 1024 * 1024 * 1024
+	dailyClientTrafficLimit20GBBytes int64 = 20 * 1024 * 1024 * 1024
+	dailyClientTrafficLimit30GBBytes int64 = 30 * 1024 * 1024 * 1024
+
+	legacyDailyClientTrafficLimit5GBBytes  int64 = 5 * 1024 * 1024 * 1024
+	legacyDailyClientTrafficLimit15GBBytes int64 = 15 * 1024 * 1024 * 1024
 )
 
 func validDailyClientTrafficLimit(limit int64) bool {
 	switch limit {
-	case 0, dailyClientTrafficLimitBytes, dailyClientTrafficLimit10GBBytes, dailyClientTrafficLimit15GBBytes:
+	case 0, dailyClientTrafficLimit10GBBytes, dailyClientTrafficLimit20GBBytes, dailyClientTrafficLimit30GBBytes:
 		return true
 	default:
 		return false
@@ -1049,8 +1051,8 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	}()
 
 	// Opening an inbound that was automatically blocked by the daily limit is
-	// a manual override. Grant another 5 GB to the clients that already crossed
-	// today's normal threshold, then clear the inbound's auto-block marker.
+	// a manual override. Grant another full allowance to the clients that already
+	// crossed today's normal threshold, then clear the inbound's auto-block marker.
 	today := s.monitorTrafficDate()
 	dailyBlockedDate := oldInbound.DailyTrafficBlockedDate
 	if oldInbound.DailyTrafficBlockedDate == today {
@@ -3716,7 +3718,37 @@ func (s *InboundService) MigrationRequirements() {
 
 func (s *InboundService) MigrateDB() {
 	s.MigrationRequirements()
+	if err := s.migrateLegacyDailyTrafficLimits(); err != nil {
+		logger.Warningf("Daily traffic limit migration failed: %v", err)
+	}
 	s.MigrationRemoveOrphanedTraffics()
+}
+
+func (s *InboundService) migrateLegacyDailyTrafficLimits() error {
+	db := database.GetDB()
+	return db.Transaction(func(tx *gorm.DB) error {
+		migrations := []struct {
+			from int64
+			to   int64
+		}{
+			{from: legacyDailyClientTrafficLimit5GBBytes, to: dailyClientTrafficLimit10GBBytes},
+			{from: legacyDailyClientTrafficLimit15GBBytes, to: dailyClientTrafficLimit20GBBytes},
+		}
+
+		for _, migration := range migrations {
+			if err := tx.Model(&model.Inbound{}).
+				Where("daily_traffic_limit = ?", migration.from).
+				Update("daily_traffic_limit", migration.to).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&xray.ClientTraffic{}).
+				Where("daily_traffic_limit = ?", migration.from).
+				Update("daily_traffic_limit", migration.to).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (s *InboundService) GetOnlineClients() []string {
