@@ -2,7 +2,7 @@
 
 gg 现用面板的独立发行项目。保留当前功能，提供新 VPS 一键安装；不会覆盖原来的 GitHub 项目。
 
-首版 `v4.0.0` 使用已核对的 gg 生产程序，程序内部版本仍显示 `2.9.3-gg1`。来源和校验值见 [PROVENANCE.md](PROVENANCE.md)。
+当前版本 `v4.0.1` 修复了客户端日限额设为无限后又被周期流量统计写回 10G 的问题。来源和构建说明见 [PROVENANCE.md](PROVENANCE.md)。
 
 ## 一键安装
 
@@ -25,7 +25,7 @@ bash /tmp/4x-ui-install.sh --yes --no-config-prompt
 指定版本或登录地址参数：
 
 ```bash
-bash /tmp/4x-ui-install.sh --version v4.0.0 --port 7878 --web-base-path /panel/ --public-host panel.example.com
+bash /tmp/4x-ui-install.sh --version v4.0.1 --port 7878 --web-base-path /panel/ --public-host panel.example.com
 ```
 
 ## 保留的功能
@@ -66,4 +66,4 @@ bash scripts/install-selfhosted.sh --offline-dir /root/4x-ui-release --yes
 
 基于 [3x-ui](https://github.com/MHSanaei/3x-ui) 和 GG Panel，遵循 [GPL-3.0](LICENSE)。保留 Go module 和服务名以兼容现有数据库。
 
-源码测试：`go test ./...`。GitHub Actions 会测试并编译源码；首版 Release 特意采用生产原始二进制，不会被 CI 重新编译的文件覆盖。其他语言旧文档及 Docker 文件仅保留作上游开发参考，以本页的一键安装说明为准。
+源码测试：`go test ./...`。GitHub Actions 会测试并编译源码，版本标签会生成带 SHA256 校验的 Linux amd64 发布包。其他语言旧文档及 Docker 文件仅保留作上游开发参考，以本页的一键安装说明为准。

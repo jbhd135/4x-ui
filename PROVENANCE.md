@@ -1,26 +1,21 @@
-# 4x-ui v4.0.0 provenance
+# 4x-ui v4.0.1 provenance
 
-This independent distribution preserves the GG Panel production version
-verified on 2026-09-15. No existing upstream repository was overwritten.
+This independent distribution is maintained from the GG Panel source snapshot
+and does not overwrite the existing upstream repositories.
 
-- Internal panel version: `2.9.3-gg1` (intentionally unchanged).
-- Panel executable SHA256: `7be86e4b03645b2e1cc0d557334d5faff4f4ec9931e214f78c77df95779b8050`.
-- Xray: `26.4.25`, Linux amd64.
-- Xray executable SHA256: `345781b0068ff2535360f90bb2eb20551950bb4f92bc7d44d2e6c693fa7dc210`.
-- Production build: Go 1.26.3, CGO enabled, static Linux amd64, trimpath.
-- Base source revision recorded by the executable:
-  `e7b02ed54fc1c1e80d438f8ccb9477ad40c07762` with local changes.
-- This repository includes the maintained source working tree with the GG
-  client-level limits, expiry, subscription, SOCKS5 and maintenance fixes.
-  Packaging and installation are maintained separately here.
+- Internal panel version: `4.0.1`.
+- Panel build: GitHub Actions Ubuntu 24.04, Go 1.26.3, CGO enabled, static
+  Linux amd64, trimpath.
+- Xray: `26.4.25`, Linux amd64, copied from the verified `v4.0.0` runtime.
+- Xray executable SHA256:
+  `345781b0068ff2535360f90bb2eb20551950bb4f92bc7d44d2e6c693fa7dc210`.
+- `v4.0.1` fixes unlimited per-client daily traffic limits being reset to the
+  10 GB default by periodic traffic-statistics writes.
 
-The initial binary is copied byte-for-byte from the verified running panel,
-not rebuilt from this new repository. A CI source build is provided as an
-artifact and is not claimed to be byte-identical to the production build.
-
-`scripts/package-release.sh` exports a fixed allowlist of program/runtime
-files. Production databases, client records, Xray runtime configuration, TLS
-private keys, cloud credentials and backup credentials are excluded.
+`scripts/package-release.sh` and the release workflow export a fixed allowlist
+of program/runtime files. Production databases, client records, Xray runtime
+configuration, TLS private keys, cloud credentials and backup credentials are
+excluded.
 
 This project retains the GPL-3.0 license and upstream attribution to
 [3x-ui](https://github.com/MHSanaei/3x-ui). The Go module name and x-ui paths

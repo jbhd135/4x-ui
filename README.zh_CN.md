@@ -6,4 +6,4 @@
 curl -fLsS https://raw.githubusercontent.com/jbhd135/4x-ui/main/install.sh -o /tmp/4x-ui-install.sh && bash /tmp/4x-ui-install.sh
 ```
 
-首版支持 Linux x86_64 的 Debian 12+ / Ubuntu 22.04+，内部程序版本保留 `2.9.3-gg1`，安装包不含任何生产客户或密钥。
+当前 `v4.0.1` 支持 Linux x86_64 的 Debian 12+ / Ubuntu 22.04+，并修复客户端日限额“无限”被写回 10G 的问题。安装包不含任何生产客户或密钥。

@@ -17,8 +17,10 @@ type ClientTraffic struct {
 	Reset      int    `json:"reset" form:"reset" gorm:"default:0"`
 	LastOnline int64  `json:"lastOnline" form:"lastOnline" gorm:"default:0"`
 	// DailyTrafficLimit is this client's daily upload plus download allowance.
-	// Zero means unlimited.
-	DailyTrafficLimit int64 `json:"dailyTrafficLimit" form:"dailyTrafficLimit" gorm:"column:daily_traffic_limit;default:10737418240"`
+	// Zero means unlimited. The 10 GB default is assigned by AddClientStat;
+	// keeping it as a GORM default would rewrite zero to 10 GB during a slice
+	// Save in the periodic traffic collector.
+	DailyTrafficLimit int64 `json:"dailyTrafficLimit" form:"dailyTrafficLimit" gorm:"column:daily_traffic_limit"`
 	// TodayTraffic is populated from DailyClientTraffic when returning clients.
 	TodayTraffic int64 `json:"todayTraffic" gorm:"-"`
 	// DailyBlockedDate is set when the client is automatically disabled by the

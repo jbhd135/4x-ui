@@ -2,6 +2,7 @@ name: 4x-ui Checks
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 permissions:
@@ -22,11 +23,52 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
+          mkdir -p dist
           CC=musl-gcc CGO_ENABLED=1 go build -trimpath -ldflags '-linkmode external -extldflags -static' -o dist/x-ui .
       - uses: actions/upload-artifact@v4
         with:
           name: source-build-linux-amd64
           path: dist/x-ui
 
-# v4.0.0 preserves the exact verified production executable. Publishing is
-# deliberate/manual; a source-build workflow must not overwrite that asset.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: source-build-linux-amd64
+          path: dist
+      - name: Assemble verified runtime
+        run: |
+          set -euo pipefail
+          mkdir -p build/base build/output
+          curl -fLsS --retry 3 \
+            https://github.com/jbhd135/4x-ui/releases/download/v4.0.0/x-ui-linux-amd64.tar.gz \
+            -o build/base/x-ui-linux-amd64.tar.gz
+          curl -fLsS --retry 3 \
+            https://github.com/jbhd135/4x-ui/releases/download/v4.0.0/SHA256SUMS \
+            -o build/base/SHA256SUMS
+          (cd build/base && sha256sum -c SHA256SUMS)
+          tar -xzf build/base/x-ui-linux-amd64.tar.gz -C build
+          install -m 755 dist/x-ui build/x-ui/x-ui
+          install -m 644 LICENSE build/x-ui/LICENSE
+          install -m 644 PROVENANCE.md build/x-ui/PROVENANCE.md
+          install -m 755 scripts/install-selfhosted.sh build/x-ui/install-selfhosted.sh
+          tar -czf build/output/x-ui-linux-amd64.tar.gz -C build x-ui
+          (cd build/output && sha256sum x-ui-linux-amd64.tar.gz > SHA256SUMS)
+          build/x-ui/x-ui -v
+          file build/x-ui/x-ui
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "$GITHUB_REF_NAME" \
+            build/output/x-ui-linux-amd64.tar.gz \
+            build/output/SHA256SUMS \
+            --title "4x-ui $GITHUB_REF_NAME" \
+            --generate-notes

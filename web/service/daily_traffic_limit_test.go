@@ -66,6 +66,7 @@ func TestStaleDailyOverrideDoesNotCarryAcrossDays(t *testing.T) {
 		InboundId:          inbound.Id,
 		Email:              "stale-daily-override-client",
 		Enable:             true,
+		DailyTrafficLimit:  dailyClientTrafficLimit10GBBytes,
 		DailyOverrideLimit: 40 * 1024 * 1024 * 1024,
 		// Empty is the legacy value after AutoMigrate adds the date column.
 		DailyOverrideDate: "",
@@ -96,6 +97,34 @@ func TestStaleDailyOverrideDoesNotCarryAcrossDays(t *testing.T) {
 		t.Fatal(err)
 	} else if count != 1 {
 		t.Fatalf("disabled client count = %d, want 1", count)
+	}
+}
+
+func TestAddClientStatAssignsDefaultDailyLimit(t *testing.T) {
+	setupDailyTrafficTestDB(t)
+
+	inbound := &model.Inbound{
+		Tag:      "client-default-daily-limit-inbound",
+		Port:     23461,
+		Protocol: model.VMESS,
+		Enable:   true,
+		Settings: `{"clients":[]}`,
+	}
+	if err := database.GetDB().Create(inbound).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	client := &model.Client{Email: "client-default-daily-limit", Enable: true}
+	if err := (&InboundService{}).AddClientStat(database.GetDB(), inbound.Id, client); err != nil {
+		t.Fatal(err)
+	}
+
+	var saved xray.ClientTraffic
+	if err := database.GetDB().Where("inbound_id = ? AND email = ?", inbound.Id, client.Email).First(&saved).Error; err != nil {
+		t.Fatal(err)
+	}
+	if got := saved.DailyTrafficLimit; got != dailyClientTrafficLimit10GBBytes {
+		t.Fatalf("new client daily limit = %d, want %d", got, dailyClientTrafficLimit10GBBytes)
 	}
 }
 
@@ -391,6 +420,38 @@ func TestUpdateInboundDailyTrafficLimitRestoresAndBlocks(t *testing.T) {
 	}
 	if !needRestart || !updated.Enable || updated.DailyTrafficLimit != 0 {
 		t.Fatalf("unlimited selection should restore the client: restart=%v enable=%v limit=%d", needRestart, updated.Enable, updated.DailyTrafficLimit)
+	}
+
+	var saved xray.ClientTraffic
+	if err := database.GetDB().Where("inbound_id = ? AND email = ?", inbound.Id, "daily-limit-selection-client").First(&saved).Error; err != nil {
+		t.Fatal(err)
+	}
+	if saved.DailyTrafficLimit != 0 {
+		t.Fatalf("reloaded unlimited limit = %d, want 0", saved.DailyTrafficLimit)
+	}
+
+	// Traffic collection saves client rows as a slice. Unlimited must survive
+	// that periodic write instead of being replaced by the model default.
+	saved.Up++
+	if err := database.GetDB().Save([]*xray.ClientTraffic{&saved}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := database.GetDB().Where("inbound_id = ? AND email = ?", inbound.Id, "daily-limit-selection-client").First(&saved).Error; err != nil {
+		t.Fatal(err)
+	}
+	if saved.DailyTrafficLimit != 0 {
+		t.Fatalf("unlimited limit after traffic save = %d, want 0", saved.DailyTrafficLimit)
+	}
+
+	inbounds, err := service.GetInbounds(inbound.UserId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inbounds) != 1 || len(inbounds[0].ClientStats) != 1 {
+		t.Fatalf("reloaded inbounds = %d, client stats = %d, want 1 and 1", len(inbounds), len(inbounds[0].ClientStats))
+	}
+	if got := inbounds[0].ClientStats[0].DailyTrafficLimit; got != 0 {
+		t.Fatalf("API list unlimited limit = %d, want 0", got)
 	}
 
 	if _, _, err := service.UpdateClientDailyTrafficLimit(inbound.Id, "daily-limit-selection-client", 7*1024*1024*1024); err == nil {
