@@ -1,0 +1,53 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const root = path.resolve(__dirname, '..');
+vm.runInThisContext(fs.readFileSync(path.join(root, 'web/assets/js/model/inbound.js'), 'utf8'));
+globalThis.clientNameTimeZone = 'Asia/Shanghai';
+const fixtures = JSON.parse(fs.readFileSync(path.join(root, 'testdata/client_codes.json')));
+for (const { email, code } of fixtures) assert.equal(clientLookupCode(email), code, email);
+const expiryTime = Date.parse('2026-10-08T23:59:59+08:00');
+const client = { email: '20261008-azxd4p', expiryTime, id: 'unchanged-uuid' };
+assert.equal(clientLookupRemark(client), 'azxd4p | 26-10-08');
+assert.equal(clientLookupRemark({ ...client, expiryTime: expiryTime + 86400000 }), 'azxd4p | 26-10-09');
+assert.equal(clientLookupRemark({ ...client, expiryTime: 0 }), 'azxd4p | 不限期');
+assert.equal(clientLookupRemark({ ...client, expiryTime: -86400000 }), 'azxd4p | 启用后1天');
+assert.equal(clientLookupRemark({ email: '临时测试', expiryTime: 0 }), 'cf83bbad4 | 临时测试');
+assert.equal(clientLookupRemark({ email: 'test', expiryTime }), 'cafd071e5 | test | 26-10-08');
+assert.equal(clientLookupRemark(client, 'B'), 'azxd4p | 26-10-08 | B');
+// Test the real genAllLinks path used by both copied links and QR codes.
+globalThis.ObjectUtil = { isEmpty: x => !x, isArrEmpty: x => !x?.length };
+globalThis.location = { hostname: 'example.com' };
+const inbound = Object.create(Inbound.prototype);
+inbound.port = 443;
+inbound.listen = '';
+inbound.stream = { externalProxy: [] };
+inbound.genLink = (address, port, tls, name, user) => `vless://${user.id}@${address}:${port}#${encodeURIComponent(name)}`;
+for (const model of ['-i', '-ieo', '_eio']) {
+    const links = inbound.genAllLinks('shared-reality', model, client);
+    assert.equal(links[0].remark, 'azxd4p | 26-10-08');
+    assert.equal(decodeURIComponent(new URL(links[0].link).hash.slice(1)), links[0].remark);
+    assert.equal(new URL(links[0].link).username, client.id);
+}
+inbound.stream.externalProxy = [{ dest: 'backup.example.com', port: 8443, forceTls: 'same', remark: 'B' }];
+assert.equal(inbound.genAllLinks('shared-reality', '-i', client)[0].remark, 'azxd4p | 26-10-08 | B');
+// Different browser timezone must not shift the server's expiry date.
+assert.equal(clientLookupRemark({ ...client, expiryTime: Date.parse('2026-10-08T00:00:00+08:00') }), 'azxd4p | 26-10-08');
+const html = fs.readFileSync(path.join(root, 'web/html/inbounds.html'), 'utf8');
+const searchSource = html.slice(html.indexOf('      searchInbounds(key) {'), html.indexOf('      filterInbounds() {'));
+const search = vm.runInThisContext(`({${searchSource}}).searchInbounds`);
+globalThis.DBInbound = class { constructor(data) { Object.assign(this, data); } };
+ObjectUtil.deepSearch = (obj, key) => JSON.stringify(obj).toLowerCase().includes(String(key).toLowerCase());
+Inbound.Settings.fromJson = (protocol, json) => json;
+const settings = JSON.stringify({ clients: [client, { email: '临时测试' }] });
+const state = { dbInbounds: [{ id: 1, protocol: 'vless', settings }], setSearchedInbounds(rows) { this.rows = rows; } };
+search.call(state, 'AZXD4P');
+assert.equal(state.rows[0].settings.clients[0].email, client.email);
+assert.equal(state.rows[0].settings.clients.length, 1);
+search.call(state, 'cf83bbad4');
+assert.equal(state.rows[0].settings.clients[0].email, '临时测试');
+search.call(state, 'not-found');
+assert.equal(state.rows.length, 0);
+assert.equal(state.dbInbounds[0].settings, settings, 'search must not mutate original client settings');
+console.log('Client naming fixtures, renewal, custom names, copied links and QR paths passed.');

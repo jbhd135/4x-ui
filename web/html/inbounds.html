@@ -1039,6 +1039,7 @@
 <script src="{{ .base_path }}assets/qrcode/qrious2.min.js?{{ .asset_ver }}"></script>
 <script src="{{ .base_path }}assets/uri/URI.min.js?{{ .asset_ver }}"></script>
 <script src="{{ .base_path }}assets/js/model/reality_targets.js?{{ .asset_ver }}"></script>
+<script>window.clientNameTimeZone = {{ .client_name_time_zone }};</script>
 <script src="{{ .base_path }}assets/js/model/inbound.js?{{ .asset_ver }}"></script>
 <script src="{{ .base_path }}assets/js/model/dbinbound.js?{{ .asset_ver }}"></script>
 {{template "component/aSidebar" .}}
@@ -2087,15 +2088,17 @@
           rows.push(...this.dbInbounds);
         } else {
           this.dbInbounds.forEach(inbound => {
-            if (ObjectUtil.deepSearch(inbound, key)) {
+            const inboundSettings = JSON.parse(inbound.settings);
+            const matchesClient = client => ObjectUtil.deepSearch(client, key) ||
+              clientLookupCode(client.email).includes(String(key).trim().toLowerCase());
+            if (ObjectUtil.deepSearch(inbound, key) || (inboundSettings.clients || []).some(matchesClient)) {
               const newInbound = new DBInbound(inbound);
-              const inboundSettings = JSON.parse(inbound.settings);
               if (inboundSettings.hasOwnProperty('clients')) {
                 const searchedSettings = {
                   "clients": []
                 };
                 inboundSettings.clients.forEach(client => {
-                  if (ObjectUtil.deepSearch(client, key)) {
+                  if (matchesClient(client)) {
                     searchedSettings.clients.push(client);
                   }
                 });
@@ -2586,6 +2589,13 @@
         const normalizedClientName = String(clientName || '').trim();
         client.email = normalizedClientName ||
           `${moment(expiryTime).format('YYYYMMDD')}-${RandomUtil.randomLowerAndNum(6)}`;
+        if (!normalizedClientName) {
+          const usedCodes = new Set(this.dbInbounds.flatMap(row =>
+            (JSON.parse(row.settings).clients || []).map(item => clientLookupCode(item.email))));
+          for (let attempt = 0; usedCodes.has(clientLookupCode(client.email)) && attempt < 20; attempt++) {
+            client.email = `${moment(expiryTime).format('YYYYMMDD')}-${RandomUtil.randomLowerAndNum(6)}`;
+          }
+        }
         client.limitIp = normalizedDeviceLimit;
         client.expiryTime = expiryTime;
         client.enable = true;

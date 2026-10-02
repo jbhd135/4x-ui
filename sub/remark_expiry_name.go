@@ -6,10 +6,45 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mhsanaei/3x-ui/v2/database/model"
+	"github.com/mhsanaei/3x-ui/v2/util/common"
 )
 
 var clientRemarkDateTokens = regexp.MustCompile(`\d+`)
 var datedClientIdentifier = regexp.MustCompile(`^(?:\d{4}|\d{6}|\d{8})-(.+)$`)
+
+func (s *SubService) clientLookupRemark(inbound *model.Inbound, email, extra string) string {
+	parts := []string{common.ClientCode(email)}
+	if !common.IsDatedClientName(email) {
+		parts = append(parts, strings.TrimSpace(email))
+	}
+	clients, _ := s.inboundService.GetClients(inbound)
+	var expiry int64
+	found := false
+	for _, client := range clients {
+		if client.Email == email {
+			expiry, found = client.ExpiryTime, true
+			break
+		}
+	}
+	if found {
+		switch {
+		case expiry > 0:
+			parts = append(parts, time.UnixMilli(expiry).In(s.remarkDateNow().Location()).Format("06-01-02"))
+		case expiry < 0:
+			parts = append(parts, fmt.Sprintf("启用后%d天", -expiry/86400000))
+		case common.IsDatedClientName(email):
+			parts = append(parts, "不限期")
+		}
+	} else if date, ok := parseClientRemarkExpiryDate(inbound.Remark, s.remarkDateNow()); ok {
+		parts = append(parts, date.Format("06-01-02"))
+	}
+	if extra = strings.TrimSpace(extra); extra != "" {
+		parts = append(parts, extra)
+	}
+	return strings.Join(parts, " | ")
+}
 
 func (s *SubService) clientVisibleInboundRemark(remark string) (string, bool) {
 	if formatted, ok := formatClientExpiryRemark(remark, s.remarkDateNow()); ok {

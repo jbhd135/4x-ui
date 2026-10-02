@@ -556,10 +556,19 @@ func (s *InboundService) contains(slice []string, str string) bool {
 	return false
 }
 
-func (s *InboundService) checkEmailsExistForClients(clients []model.Client) (string, error) {
+func (s *InboundService) checkEmailsExistForClients(clients []model.Client, replacingEmails ...string) (string, error) {
 	allEmails, err := s.getAllEmails()
 	if err != nil {
 		return "", err
+	}
+	if len(replacingEmails) > 0 {
+		kept := make([]string, 0, len(allEmails))
+		for _, email := range allEmails {
+			if !s.contains(replacingEmails, email) {
+				kept = append(kept, email)
+			}
+		}
+		allEmails = kept
 	}
 	var emails []string
 	for _, client := range clients {
@@ -573,7 +582,7 @@ func (s *InboundService) checkEmailsExistForClients(clients []model.Client) (str
 			emails = append(emails, client.Email)
 		}
 	}
-	return "", nil
+	return "", common.CheckClientCodeConflicts(allEmails, emails)
 }
 
 func (s *InboundService) checkEmailExistForInbound(inbound *model.Inbound) (string, error) {
@@ -597,7 +606,7 @@ func (s *InboundService) checkEmailExistForInbound(inbound *model.Inbound) (stri
 			emails = append(emails, client.Email)
 		}
 	}
-	return "", nil
+	return "", common.CheckClientCodeConflicts(allEmails, emails)
 }
 
 // AddInbound creates a new inbound configuration.
@@ -1035,6 +1044,23 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	oldInbound, err := s.GetInbound(inbound.Id)
 	if err != nil {
 		return inbound, false, err
+	}
+	newClients, err := s.GetClients(inbound)
+	if err != nil {
+		return inbound, false, err
+	}
+	oldClients, err := s.GetClients(oldInbound)
+	if err != nil {
+		return inbound, false, err
+	}
+	oldEmails := make([]string, 0, len(oldClients))
+	for _, client := range oldClients {
+		oldEmails = append(oldEmails, client.Email)
+	}
+	if duplicate, checkErr := s.checkEmailsExistForClients(newClients, oldEmails...); checkErr != nil {
+		return inbound, false, checkErr
+	} else if duplicate != "" {
+		return inbound, false, common.NewError("Duplicate email:", duplicate)
 	}
 
 	tag := oldInbound.Tag
@@ -1957,7 +1983,7 @@ func (s *InboundService) UpdateInboundClient(data *model.Inbound, clientId strin
 		(oldClients[clientIndex].SocksProxyEnabled || clients[0].SocksProxyEnabled)
 
 	if len(clients[0].Email) > 0 && clients[0].Email != oldEmail {
-		existEmail, err := s.checkEmailsExistForClients(clients)
+		existEmail, err := s.checkEmailsExistForClients(clients, oldEmail)
 		if err != nil {
 			return false, err
 		}

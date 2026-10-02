@@ -1,7 +1,10 @@
 package controller
 
 import (
+	"os"
+
 	"github.com/gin-gonic/gin"
+	"github.com/mhsanaei/3x-ui/v2/web/service"
 )
 
 // XUIController is the main controller for the X-UI panel, managing sub-controllers.
@@ -42,7 +45,14 @@ func (a *XUIController) index(c *gin.Context) {
 
 // inbounds renders the inbounds management page.
 func (a *XUIController) inbounds(c *gin.Context) {
-	html(c, "inbounds.html", "pages.inbounds.title", nil)
+	zone := ""
+	if loc, err := (&service.SettingService{}).GetTimeLocation(); err == nil && loc != nil {
+		zone = loc.String()
+		if zone == "Local" {
+			zone = os.Getenv("TZ")
+		}
+	}
+	html(c, "inbounds.html", "pages.inbounds.title", gin.H{"client_name_time_zone": zone})
 }
 
 func (a *XUIController) upstreamSubscriptions(c *gin.Context) {

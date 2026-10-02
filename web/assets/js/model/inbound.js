@@ -189,6 +189,43 @@ function formatClientIdentifierSuffix(email) {
     return datedIdentifier ? datedIdentifier[1] : identifier;
 }
 
+function isDatedClientName(email) {
+    return /^(?:\d{4}|\d{6}|\d{8})-[a-zA-Z0-9]{6,12}$/.test(String(email || '').trim());
+}
+
+function clientLookupCode(email) {
+    const name = String(email || '').trim();
+    if (!name) return '';
+    if (isDatedClientName(name)) return formatClientIdentifierSuffix(name).toLowerCase();
+    // FNV-1a over UTF-8, matching common.ClientCode. This is not a credential.
+    let hash = 2166136261;
+    for (const byte of new TextEncoder().encode(name)) {
+        hash = Math.imul(hash ^ byte, 16777619) >>> 0;
+    }
+    return `c${hash.toString(16).padStart(8, '0')}`;
+}
+
+function clientLookupRemark(client, extra = '') {
+    const name = String(client?.email || '').trim();
+    const parts = [clientLookupCode(name)];
+    if (!isDatedClientName(name)) parts.push(name);
+    const expiryTime = Number(client?.expiryTime || 0);
+    if (expiryTime > 0) {
+        const date = new Date(expiryTime);
+        const options = { year: '2-digit', month: '2-digit', day: '2-digit' };
+        if (globalThis.clientNameTimeZone) options.timeZone = globalThis.clientNameTimeZone;
+        const fields = new Intl.DateTimeFormat('en-GB', options).formatToParts(date);
+        const value = type => fields.find(part => part.type === type).value;
+        parts.push(`${value('year')}-${value('month')}-${value('day')}`);
+    } else if (expiryTime < 0) {
+        parts.push(`启用后${Math.trunc(-expiryTime / 86400000)}天`);
+    } else if (isDatedClientName(name)) {
+        parts.push('不限期');
+    }
+    if (String(extra || '').trim()) parts.push(String(extra).trim());
+    return parts.filter(Boolean).join(' | ');
+}
+
 class XrayCommonClass {
 
     static toJsonArray(arr) {
@@ -2336,6 +2373,7 @@ class Inbound extends XrayCommonClass {
         };
         if (ObjectUtil.isArrEmpty(this.stream.externalProxy)) {
             let r = orderChars.split('').map(char => orders[char]).filter(x => x.length > 0).join(separationChar);
+            if (email.trim()) r = clientLookupRemark(client);
             result.push({
                 remark: r,
                 link: this.genLink(addr, port, 'same', r, client)
@@ -2344,6 +2382,7 @@ class Inbound extends XrayCommonClass {
             this.stream.externalProxy.forEach((ep) => {
                 orders['o'] = ep.remark;
                 let r = orderChars.split('').map(char => orders[char]).filter(x => x.length > 0).join(separationChar);
+                if (email.trim()) r = clientLookupRemark(client, ep.remark);
                 result.push({
                     remark: r,
                     link: this.genLink(ep.dest, ep.port, ep.forceTls, r, client)

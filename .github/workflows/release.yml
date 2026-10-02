@@ -17,6 +17,10 @@ jobs:
           go-version: '1.26.3'
       - run: go vet ./...
       - run: go test -race ./...
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: TZ=UTC node scripts/test-client-names.cjs
       - run: bash -n install.sh update.sh scripts/install-selfhosted.sh scripts/package-release.sh
       - run: shellcheck install.sh update.sh scripts/install-selfhosted.sh scripts/package-release.sh
       - name: Compile source snapshot (not the production release binary)

@@ -907,8 +907,12 @@ func cloneStringMap(source map[string]string) map[string]string {
 }
 
 func (s *SubService) genRemark(inbound *model.Inbound, email string, extra string) string {
-	separationChar := string(s.remarkModel[0])
-	orderChars := s.remarkModel[1:]
+	remarkModel := s.remarkModel
+	if remarkModel == "" {
+		remarkModel = "-ieo"
+	}
+	separationChar := string(remarkModel[0])
+	orderChars := remarkModel[1:]
 	orders := map[byte]string{
 		'i': "",
 		'e': "",
@@ -939,6 +943,10 @@ func (s *SubService) genRemark(inbound *model.Inbound, email string, extra strin
 			remark = append(remark, order)
 		}
 	}
+	if strings.TrimSpace(email) != "" {
+		remark = []string{s.clientLookupRemark(inbound, email, extra)}
+		separationChar = " | "
+	}
 
 	if s.showInfo {
 		statsExist := false
@@ -954,7 +962,7 @@ func (s *SubService) genRemark(inbound *model.Inbound, email string, extra strin
 		// Get remained days
 		if statsExist {
 			if !stats.Enable {
-				return fmt.Sprintf("⛔️N/A%s%s", separationChar, strings.Join(remark, separationChar))
+				return strings.Join(append(remark, "⛔️N/A"), separationChar)
 			}
 			if vol := stats.Total - (stats.Up + stats.Down); vol > 0 {
 				remark = append(remark, fmt.Sprintf("%s%s", common.FormatTraffic(vol), "📊"))

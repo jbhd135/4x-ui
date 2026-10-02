@@ -6,4 +6,4 @@
 curl -fLsS https://raw.githubusercontent.com/jbhd135/4x-ui/main/install.sh -o /tmp/4x-ui-install.sh && bash /tmp/4x-ui-install.sh
 ```
 
-当前 `v4.0.3` 支持 Linux x86_64 的 Debian 12+ / Ubuntu 22.04+。手动日限额为 `10G / 20G / 30G / 无限`，升级启动时会迁移旧档位，并保留客户端“无限”额度的持久化修复。安装包不含任何生产客户或密钥。
+当前 `v4.0.4` 支持 Linux x86_64 的 Debian 12+ / Ubuntu 22.04+。节点名称改为识别码在前、短日期在后，例如 `azxd4p | 26-10-08`，可按识别码搜索客户。保留 `10G / 20G / 30G / 无限` 日限额和此前修复。安装包不含任何生产客户或密钥。
