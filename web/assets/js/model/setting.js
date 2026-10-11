@@ -43,7 +43,7 @@ class AllSetting {
         this.subDomain = "";
         this.externalTrafficInformEnable = false;
         this.externalTrafficInformURI = "";
-        this.restartXrayOnClientDisable = true;
+        this.restartXrayOnClientDisable = false;
         this.subCertFile = "";
         this.subKeyFile = "";
         this.subUpdates = 12;

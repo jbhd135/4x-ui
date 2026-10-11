@@ -2,7 +2,7 @@
 
 gg 现用面板的独立发行项目。保留当前功能，提供新 VPS 一键安装；不会覆盖原来的 GitHub 项目。
 
-当前版本 `v4.0.4` 将节点名称改为 `azxd4p | 26-10-08`：客户识别码在前，到期日期在后，方便通过截图查找客户。保留 `10G / 20G / 30G / 无限` 日限额及此前修复。来源和构建说明见 [PROVENANCE.md](PROVENANCE.md)。
+当前版本 `v4.0.5` 默认关闭“客户端自动禁用后重启 Xray”，避免正常客户因其他客户超额或到期而一起断线。已有安装明确保存的开关设置保持不变，升级注意事项见下文。保留识别码在前的节点名称、`10G / 20G / 30G / 无限` 日限额及此前修复。来源和构建说明见 [PROVENANCE.md](PROVENANCE.md)。
 
 ## 一键安装
 
@@ -25,7 +25,7 @@ bash /tmp/4x-ui-install.sh --yes --no-config-prompt
 指定版本或登录地址参数：
 
 ```bash
-bash /tmp/4x-ui-install.sh --version v4.0.4 --port 7878 --web-base-path /panel/ --public-host panel.example.com
+bash /tmp/4x-ui-install.sh --version v4.0.5 --port 7878 --web-base-path /panel/ --public-host panel.example.com
 ```
 
 ## 保留的功能
@@ -53,6 +53,13 @@ bash /tmp/4x-ui-install.sh --version v4.0.4 --port 7878 --web-base-path /panel/ 
 - 老订阅需更新订阅；单链接导入的旧节点需重新导入或手动改名。显示名称不是连接凭据。
 
 ## 管理与升级
+
+### v4.0.5 限额处理默认值
+
+- 新安装以及未保存 `restartXrayOnClientDisable` 设置的安装，默认关闭“客户端自动禁用后重启 Xray”。前后端默认值一致。
+- 已有数据库中明确保存的开启或关闭状态不会被覆盖。若此前开启，请在面板设置中关闭该开关并保存；仅升级不会替你关闭已保存的开关。
+- 正常情况下，超额或到期客户通过 Xray API 禁止建立新连接，不再仅因客户被自动禁用而强制重启整个 Xray。已有长连接可能继续，不保证立即断开；API 失败等原有恢复逻辑仍可能触发重启。
+- 不修改客户 UUID、设备限制、日限额数值、到期日期或每日重置时间。安装升级本身仍按原流程重启面板，应安排在维护时段。
 
 ```bash
 x-ui status

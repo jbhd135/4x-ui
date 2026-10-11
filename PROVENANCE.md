@@ -1,14 +1,22 @@
-# 4x-ui v4.0.4 provenance
+# 4x-ui v4.0.5 provenance
 
 This independent distribution is maintained from the GG Panel source snapshot
 and does not overwrite the existing upstream repositories.
 
-- Internal panel version: `4.0.4`.
+- Internal panel version: `4.0.5`.
 - Panel build: GitHub Actions Ubuntu 24.04, Go 1.26.3, CGO enabled, static
   Linux amd64, trimpath.
 - Xray: `26.4.25`, Linux amd64, copied from the verified `v4.0.0` runtime.
 - Xray executable SHA256:
   `345781b0068ff2535360f90bb2eb20551950bb4f92bc7d44d2e6c693fa7dc210`.
+- `v4.0.5` defaults `restartXrayOnClientDisable` to false in both the backend
+  and frontend. Fresh installations and missing settings use the new default;
+  explicitly stored true/false values are preserved. Existing installations
+  that enabled the option must turn it off in panel settings to opt out.
+  Normal auto-disable handling removes the affected user's access via the
+  Xray API without forcing a global restart solely for that event. Existing
+  connections may continue; API failure recovery can still require a restart.
+  Client identities, quota values and daily reset times are unchanged.
 - `v4.0.4` puts a public customer lookup code first in copied links and all
   subscription formats, followed by a compact expiry date. Custom names remain
   visible and searchable by their deterministic short code. Customer credentials,

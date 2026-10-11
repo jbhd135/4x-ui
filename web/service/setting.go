@@ -83,7 +83,7 @@ var defaultValueMap = map[string]string{
 	"nord":                        "",
 	"externalTrafficInformEnable": "false",
 	"externalTrafficInformURI":    "",
-	"restartXrayOnClientDisable":  "true",
+	"restartXrayOnClientDisable":  "false",
 	"xrayOutboundTestUrl":         "https://www.google.com/generate_204",
 
 	// LDAP defaults
