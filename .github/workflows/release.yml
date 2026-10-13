@@ -37,7 +37,7 @@ jobs:
           trap 'rm -rf "$TEST_DIR"' EXIT
           XUI_DB_FOLDER="$TEST_DIR/db" XUI_LOG_FOLDER="$TEST_DIR/log" dist/x-ui setting -port 19897 -listenIP 127.0.0.1 -webBasePath /
           test "$(sqlite3 "$TEST_DIR/db/x-ui.db" 'PRAGMA quick_check;')" = ok
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: source-build-linux-amd64
           path: dist/x-ui
