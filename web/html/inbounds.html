@@ -999,7 +999,9 @@
     :title="'添加客户端 - ' + quickAddClientModal.inboundRemark"
     :confirm-loading="quickAddClientModal.saving" :class="themeSwitcher.currentTheme"
     ok-text="创建并复制链接" cancel-text='{{ i18n "close" }}' width="520px"
-    :mask-closable="false" @ok="submitQuickAddClient">
+    :mask-closable="false" :closable="!quickAddClientModal.saving"
+    :keyboard="!quickAddClientModal.saving"
+    :cancel-button-props="{ props: { disabled: quickAddClientModal.saving } }" @ok="submitQuickAddClient">
     <a-form layout="vertical" class="quick-client-add-form">
       <a-form-item label="客户端名称（可选）"
         help="可自由填写测试或临时名称；留空时按到期日期自动生成名称。">
@@ -1671,20 +1673,42 @@
           ]),
         ]);
       },
-      async getDBInbounds() {
-        this.refreshing = true;
-        const msg = await HttpUtil.get('/panel/api/inbounds/list');
-        if (!msg.success) {
-          this.refreshing = false;
-          return;
+      getDBInbounds({ fresh = false } = {}) {
+        if (this._inboundsRefreshPromise) {
+          // A mutation needs a snapshot taken after it, not an older in-flight response.
+          if (fresh) this._inboundsRefreshAgain = true;
+          return this._inboundsRefreshPromise;
         }
-
-        await this.getLastOnlineMap();
-        await this.getOnlineUsers();
-        this.setInbounds(msg.obj);
-        setTimeout(() => {
+        this.refreshing = true;
+        this._inboundsRefreshPromise = this.loadDBInbounds().finally(() => {
           this.refreshing = false;
-        }, 500);
+          this._inboundsRefreshPromise = null;
+        });
+        return this._inboundsRefreshPromise;
+      },
+      async loadDBInbounds() {
+        let success = false;
+        do {
+          this._inboundsRefreshAgain = false;
+          const [msg] = await Promise.all([
+            HttpUtil.get('/panel/api/inbounds/list'),
+            this.getLastOnlineMap(),
+            this.getOnlineUsers(),
+          ]);
+          success = !!(msg && msg.success);
+          if (success && !this._inboundsRefreshAgain) this.setInbounds(msg.obj);
+        } while (this._inboundsRefreshAgain);
+        return success;
+      },
+      refreshAfterClientCreate() {
+        this.$nextTick(() => {
+          this.getDBInbounds({ fresh: true }).then(success => {
+            if (!success) this.$message.warning('客户端已创建，列表刷新失败，请手动刷新，不要重复创建');
+          }).catch(error => {
+            console.warn('Failed to refresh clients after creation', error);
+            this.$message.warning('客户端已创建，列表刷新失败，请手动刷新，不要重复创建');
+          });
+        });
       },
       async getOnlineUsers() {
         const msg = await HttpUtil.post('/panel/api/inbounds/onlines');
@@ -2622,6 +2646,7 @@
       },
       async submitQuickAddClient() {
         const modal = this.quickAddClientModal;
+        if (modal.saving) return;
         if (!modal.expiryPresetMonths) {
           const resolved = this.resolveQuickClientExpiry(modal.expiryInput);
           modal.expiryInput = resolved.digits;
@@ -2657,26 +2682,26 @@
         try {
           shareLink = this.getQuickClientShareLink(inbound, client, clientName);
           if (shareLink) {
-            pendingCopy = ClipboardManager.copyText(shareLink);
+            pendingCopy = ClipboardManager.copyText(shareLink).catch(() => false);
           }
         } catch (error) {
           console.warn('Failed to prepare the quick client share link', error);
         }
         modal.saving = true;
+        let msg;
         try {
-          const msg = await this.addClient(client, dbInbound.id);
-          if (!msg || !msg.success) {
-            return;
-          }
-          modal.visible = false;
-          const copied = await pendingCopy || (shareLink && await ClipboardManager.copyText(shareLink));
-          if (copied) {
-            this.$message.success('客户端已创建，专属链接已复制');
-          } else {
-            this.$message.warning('客户端已创建，但自动复制失败，请从客户端列表复制链接');
-          }
+          msg = await this.addClient(client, dbInbound.id, null, { refresh: false });
         } finally {
           modal.saving = false;
+        }
+        if (!msg || !msg.success) return;
+        modal.visible = false;
+        this.refreshAfterClientCreate();
+        const copied = await pendingCopy || (shareLink && await ClipboardManager.copyText(shareLink));
+        if (copied) {
+          this.$message.success('客户端已创建，专属链接已复制');
+        } else {
+          this.$message.warning('客户端已创建，但自动复制失败，请从客户端列表复制链接');
         }
       },
       openAddBulkClient(dbInboundId) {
@@ -2728,12 +2753,12 @@
         payload.socksProxyEnabled = client.socksProxyEnabled === true;
         return payload;
       },
-      async addClient(client, dbInboundId, modal) {
+      async addClient(client, dbInboundId, modal, options) {
         const data = {
           id: dbInboundId,
           settings: JSON.stringify({ clients: [this.serializeClientForUpdate(client)] }),
         };
-        return await this.submit(`/panel/api/inbounds/addClient`, data, modal);
+        return await this.submit(`/panel/api/inbounds/addClient`, data, modal, options);
       },
       async updateClient(client, dbInboundId, clientId) {
         const data = {
@@ -3147,10 +3172,10 @@
           this.loading(false);
         }
       },
-      async submit(url, data, modal) {
+      async submit(url, data, modal, { refresh = true } = {}) {
         const msg = await HttpUtil.postWithModal(url, data, modal);
-        if (msg.success) {
-          await this.getDBInbounds();
+        if (msg.success && refresh) {
+          await this.getDBInbounds({ fresh: true });
         }
         return msg;
       },

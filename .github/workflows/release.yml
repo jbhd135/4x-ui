@@ -21,6 +21,7 @@ jobs:
         with:
           node-version: '22'
       - run: TZ=UTC node scripts/test-client-names.cjs
+      - run: node scripts/test-client-create.cjs
       - run: node scripts/test-setting-defaults.cjs
       - run: bash -n install.sh update.sh scripts/install-selfhosted.sh scripts/package-release.sh
       - run: shellcheck install.sh update.sh scripts/install-selfhosted.sh scripts/package-release.sh
