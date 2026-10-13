@@ -28,9 +28,15 @@ jobs:
       - name: Compile source snapshot (not the production release binary)
         run: |
           sudo apt-get update
-          sudo apt-get install -y musl-tools
+          sudo apt-get install -y musl-tools sqlite3
           mkdir -p dist
           CC=musl-gcc CGO_ENABLED=1 go build -trimpath -ldflags '-linkmode external -extldflags -static' -o dist/x-ui .
+      - name: Verify SQLite in the actual Linux binary
+        run: |
+          TEST_DIR=$(mktemp -d)
+          trap 'rm -rf "$TEST_DIR"' EXIT
+          XUI_DB_FOLDER="$TEST_DIR/db" XUI_LOG_FOLDER="$TEST_DIR/log" dist/x-ui setting -port 19897 -listenIP 127.0.0.1 -webBasePath /
+          test "$(sqlite3 "$TEST_DIR/db/x-ui.db" 'PRAGMA quick_check;')" = ok
       - uses: actions/upload-artifact@v4
         with:
           name: source-build-linux-amd64
@@ -64,6 +70,9 @@ jobs:
           install -m 644 LICENSE build/x-ui/LICENSE
           install -m 644 PROVENANCE.md build/x-ui/PROVENANCE.md
           install -m 755 scripts/install-selfhosted.sh build/x-ui/install-selfhosted.sh
+          test "$(build/x-ui/x-ui -v)" = "${GITHUB_REF_NAME#v}"
+          test ! -e build/x-ui/bin/config.json
+          test ! -e build/x-ui/x-ui.db
           tar -czf build/output/x-ui-linux-amd64.tar.gz -C build x-ui
           (cd build/output && sha256sum x-ui-linux-amd64.tar.gz > SHA256SUMS)
           build/x-ui/x-ui -v

@@ -1,14 +1,20 @@
-# 4x-ui v4.0.5 provenance
+# 4x-ui v4.0.6 provenance
 
 This independent distribution is maintained from the GG Panel source snapshot
 and does not overwrite the existing upstream repositories.
 
-- Internal panel version: `4.0.5`.
+- Internal panel version: `4.0.6`.
 - Panel build: GitHub Actions Ubuntu 24.04, Go 1.26.3, CGO enabled, static
   Linux amd64, trimpath.
 - Xray: `26.4.25`, Linux amd64, copied from the verified `v4.0.0` runtime.
 - Xray executable SHA256:
   `345781b0068ff2535360f90bb2eb20551950bb4f92bc7d44d2e6c693fa7dc210`.
+- `v4.0.6` closes quick client creation after a successful save without waiting
+  for the full client list refresh. List and online-status reads run concurrently;
+  overlapping refreshes are coalesced, and saves request a post-mutation snapshot.
+  Duplicate submissions are blocked while saving. Failed saves keep the form
+  open; a failed background refresh warns that the client was already created.
+  Client credentials, naming, expiry and device limits are unchanged.
 - `v4.0.5` defaults `restartXrayOnClientDisable` to false in both the backend
   and frontend. Fresh installations and missing settings use the new default;
   explicitly stored true/false values are preserved. Existing installations
