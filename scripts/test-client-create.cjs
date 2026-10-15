@@ -16,6 +16,7 @@ const methods = Object.fromEntries([
   'getDBInbounds', 'loadDBInbounds', 'getLastOnlineMap', 'getOnlineUsers',
   'refreshAfterClientCreate', 'submit', 'addClient', 'serializeClientForUpdate',
   'submitQuickAddClient',
+  'canUseQuickClientHome', 'setQuickClientDevicePreset', 'openQuickAddClientModal',
 ].map(name => [name, method(name)]));
 const deferred = () => {
   let resolve, reject;
@@ -53,6 +54,7 @@ function creator() {
   app.quickAddClientModal = {
     visible: true, saving: false, inboundId: 2, clientName: '',
     expiryPresetMonths: 12, expiry: { valueOf: () => client.expiryTime }, deviceLimit: 1,
+    deviceLimitPreset: 1, customDeviceLimit: 1, socksProxyEnabled: false,
   };
   app.dbInbounds = [{ id: 2, toInbound: () => ({ clients: [] }) }];
   app.createQuickClient = () => client;
@@ -174,5 +176,83 @@ function creator() {
   finishBatch(calls, []);
   await standard;
   assert.equal(done, true);
+
+  // Presets keep zero as unlimited and remember the custom value.
+  app = creator();
+  for (const limit of [2, 4, 0, 1]) {
+    app.setQuickClientDevicePreset(limit);
+    assert.equal(app.quickAddClientModal.deviceLimit, limit);
+  }
+  app.setQuickClientDevicePreset('custom');
+  app.quickAddClientModal.deviceLimit = 7;
+  app.setQuickClientDevicePreset(4);
+  app.setQuickClientDevicePreset('custom');
+  assert.equal(app.quickAddClientModal.deviceLimit, 7);
+  app.quickAddClientModal.socksProxyEnabled = true;
+  app.openQuickAddClientModal({ id: 2, remark: 'fixture', isMultiUser: () => true });
+  assert.equal(app.quickAddClientModal.deviceLimit, 1);
+  assert.equal(app.quickAddClientModal.deviceLimitPreset, 1);
+  assert.equal(app.quickAddClientModal.socksProxyEnabled, false);
+
+  // Validate inputs before copying a link or sending a save request.
+  for (const limit of [null, '', undefined, -1, 2.5, 10000, NaN, Infinity]) {
+    app = creator();
+    app.quickAddClientModal.deviceLimit = limit;
+    app.createQuickClient = () => assert.fail('Invalid limit must not create a client');
+    await app.submitQuickAddClient();
+    assert.equal(app.notices.at(-1).type, 'warning');
+  }
+  for (const config of [
+    {}, { socksProxyEnabled: true },
+    { socksProxyEnabled: false, socksProxyHost: 'proxy.invalid', socksProxyPort: 1080 },
+    { socksProxyEnabled: true, socksProxyHost: 'proxy.invalid', socksProxyPort: 70000 },
+  ]) {
+    app = creator();
+    Object.assign(app.dbInbounds[0], config);
+    app.quickAddClientModal.socksProxyEnabled = true;
+    app.createQuickClient = () => assert.fail('Unavailable SOCKS exit must block creation');
+    assert.equal(app.canUseQuickClientHome(), false);
+    await app.submitQuickAddClient();
+    assert.equal(app.notices.at(-1).type, 'warning');
+  }
+
+  // Exercise real client construction, serialization and reopening in the model.
+  vm.runInThisContext(fs.readFileSync(path.join(__dirname, '../web/assets/js/model/inbound.js'), 'utf8'));
+  globalThis.moment = require('../web/assets/moment/moment.min.js');
+  globalThis.clientNameTimeZone = 'Asia/Shanghai';
+  globalThis.RandomUtil = {
+    randomUUID: () => require('node:crypto').randomUUID(),
+    randomLowerAndNum: length => 'a'.repeat(length),
+  };
+  const existing = { email: '20271113-old001', flow: 'xtls-rprx-vision', socksProxyEnabled: true, limitIp: 1 };
+  const inbound = { protocol: Protocols.VLESS, clients: [existing], stream: { network: 'tcp', security: 'reality' } };
+  for (const home of [false, true]) {
+    for (const limit of [1, 2, 4, 0, 7]) {
+      app = creator();
+      app.dbInbounds[0] = {
+        id: 2, settings: JSON.stringify({ clients: [existing] }), toInbound: () => inbound,
+        socksProxyEnabled: true, socksProxyHost: 'proxy.invalid', socksProxyPort: 1080,
+      };
+      assert.equal(app.canUseQuickClientHome(), true);
+      app.createQuickClient = method('createQuickClient');
+      app.quickAddClientModal.deviceLimit = limit;
+      app.quickAddClientModal.socksProxyEnabled = home;
+      app.refreshAfterClientCreate = () => {};
+      ClipboardManager.copyText = async () => true;
+      let saved;
+      HttpUtil.postWithModal = async (url, payload) => {
+        saved = JSON.parse(payload.settings).clients[0];
+        return { success: true };
+      };
+      await app.submitQuickAddClient();
+      const reopened = Inbound.VLESSSettings.VLESS.fromJson(saved);
+      assert.equal(reopened.limitIp, limit);
+      assert.equal(reopened.socksProxyEnabled, home);
+      assert.equal(reopened.flow, 'xtls-rprx-vision');
+      assert.equal(clientLookupRemark(reopened), `aaaaaa|${home ? '家宽' : '高速'}| 27-11-13`);
+      assert.deepEqual(existing, { email: '20271113-old001', flow: 'xtls-rprx-vision', socksProxyEnabled: true, limitIp: 1 });
+    }
+  }
   console.log('Client creation: early confirmation, duplicate protection, clipboard, refresh races and failures passed.');
+  console.log('Home routing, device presets, unlimited, custom values, validation and model round-trips passed.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -9,13 +9,20 @@ const fixtures = JSON.parse(fs.readFileSync(path.join(root, 'testdata/client_cod
 for (const { email, code } of fixtures) assert.equal(clientLookupCode(email), code, email);
 const expiryTime = Date.parse('2026-10-08T23:59:59+08:00');
 const client = { email: '20261008-azxd4p', expiryTime, id: 'unchanged-uuid' };
-assert.equal(clientLookupRemark(client), 'azxd4p | 26-10-08');
-assert.equal(clientLookupRemark({ ...client, expiryTime: expiryTime + 86400000 }), 'azxd4p | 26-10-09');
-assert.equal(clientLookupRemark({ ...client, expiryTime: 0 }), 'azxd4p | 不限期');
-assert.equal(clientLookupRemark({ ...client, expiryTime: -86400000 }), 'azxd4p | 启用后1天');
-assert.equal(clientLookupRemark({ email: '临时测试', expiryTime: 0 }), 'cf83bbad4 | 临时测试');
-assert.equal(clientLookupRemark({ email: 'test', expiryTime }), 'cafd071e5 | test | 26-10-08');
-assert.equal(clientLookupRemark(client, 'B'), 'azxd4p | 26-10-08 | B');
+assert.equal(clientLookupRemark(client), 'azxd4p|高速| 26-10-08');
+assert.equal(clientLookupRemark({ ...client, socksProxyEnabled: true }), 'azxd4p|家宽| 26-10-08');
+assert.equal(clientLookupRemark({ ...client, expiryTime: expiryTime + 86400000 }), 'azxd4p|高速| 26-10-09');
+assert.equal(clientLookupRemark({ ...client, email: '20261009-azxd4p', expiryTime: expiryTime + 86400000 }), 'azxd4p|高速| 26-10-09');
+assert.equal(clientLookupRemark({ ...client, expiryTime: 0 }), 'azxd4p|高速| 不限期');
+assert.equal(clientLookupRemark({ ...client, expiryTime: -86400000 }), 'azxd4p|高速| 启用后1天');
+assert.equal(clientLookupRemark({ email: '临时测试', expiryTime: 0 }), 'cf83bbad4|临时测试');
+assert.equal(clientLookupRemark({ email: 'test', expiryTime }), 'cafd071e5|test| 26-10-08');
+assert.equal(clientLookupRemark({ email: '临时测试', expiryTime, socksProxyEnabled: true }), 'cf83bbad4|临时测试| 26-10-08');
+assert.equal(clientLookupRemark(client, 'B'), 'azxd4p|高速| 26-10-08 | B');
+for (const socksProxyEnabled of [false, true]) {
+    assert.equal(clientLookupRemark({ email: '20261230-njnshs', expiryTime: Date.parse('2026-12-30T23:59:59+08:00'), socksProxyEnabled }),
+        `njnshs|${socksProxyEnabled ? '家宽' : '高速'}| 26-12-30`);
+}
 // Test the real genAllLinks path used by both copied links and QR codes.
 globalThis.ObjectUtil = { isEmpty: x => !x, isArrEmpty: x => !x?.length };
 globalThis.location = { hostname: 'example.com' };
@@ -24,16 +31,18 @@ inbound.port = 443;
 inbound.listen = '';
 inbound.stream = { externalProxy: [] };
 inbound.genLink = (address, port, tls, name, user) => `vless://${user.id}@${address}:${port}#${encodeURIComponent(name)}`;
-for (const model of ['-i', '-ieo', '_eio']) {
-    const links = inbound.genAllLinks('shared-reality', model, client);
-    assert.equal(links[0].remark, 'azxd4p | 26-10-08');
-    assert.equal(decodeURIComponent(new URL(links[0].link).hash.slice(1)), links[0].remark);
-    assert.equal(new URL(links[0].link).username, client.id);
+for (const socksProxyEnabled of [false, true]) {
+    for (const model of ['-i', '-ieo', '_eio']) {
+        const links = inbound.genAllLinks('shared-reality', model, { ...client, socksProxyEnabled });
+        assert.equal(links[0].remark, `azxd4p|${socksProxyEnabled ? '家宽' : '高速'}| 26-10-08`);
+        assert.equal(decodeURIComponent(new URL(links[0].link).hash.slice(1)), links[0].remark);
+        assert.equal(new URL(links[0].link).username, client.id);
+    }
 }
 inbound.stream.externalProxy = [{ dest: 'backup.example.com', port: 8443, forceTls: 'same', remark: 'B' }];
-assert.equal(inbound.genAllLinks('shared-reality', '-i', client)[0].remark, 'azxd4p | 26-10-08 | B');
+assert.equal(inbound.genAllLinks('shared-reality', '-i', client)[0].remark, 'azxd4p|高速| 26-10-08 | B');
 // Different browser timezone must not shift the server's expiry date.
-assert.equal(clientLookupRemark({ ...client, expiryTime: Date.parse('2026-10-08T00:00:00+08:00') }), 'azxd4p | 26-10-08');
+assert.equal(clientLookupRemark({ ...client, expiryTime: Date.parse('2026-10-08T00:00:00+08:00') }), 'azxd4p|高速| 26-10-08');
 const html = fs.readFileSync(path.join(root, 'web/html/inbounds.html'), 'utf8');
 const searchSource = html.slice(html.indexOf('      searchInbounds(key) {'), html.indexOf('      filterInbounds() {'));
 const search = vm.runInThisContext(`({${searchSource}}).searchInbounds`);

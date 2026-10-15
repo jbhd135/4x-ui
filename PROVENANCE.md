@@ -1,14 +1,22 @@
-# 4x-ui v4.0.6 provenance
+# 4x-ui v4.0.7 provenance
 
 This independent distribution is maintained from the GG Panel source snapshot
 and does not overwrite the existing upstream repositories.
 
-- Internal panel version: `4.0.6`.
+- Internal panel version: `4.0.7`.
 - Panel build: GitHub Actions Ubuntu 24.04, Go 1.26.3, CGO enabled, static
   Linux amd64, trimpath.
 - Xray: `26.4.25`, Linux amd64, copied from the verified `v4.0.0` runtime.
 - Xray executable SHA256:
   `345781b0068ff2535360f90bb2eb20551950bb4f92bc7d44d2e6c693fa7dc210`.
+- `v4.0.7` exports dated clients as `code|家宽| YY-MM-DD` or
+  `code|高速| YY-MM-DD`, using the existing public lookup code and the client's
+  SOCKS5 exit flag. Custom names remain supported. Quick creation adds a home
+  exit toggle, available only with a valid inbound SOCKS5 exit, plus device
+  presets 1, 2, 4, unlimited (0), and a custom integer from 0 to 9999.
+  New forms default to the normal exit and one device. Existing customer
+  credentials, stored names, expiry, limits and exit flags remain unchanged.
+  The naming is shared by copied links, QR codes and all subscription formats.
 - `v4.0.6` closes quick client creation after a successful save without waiting
   for the full client list refresh. List and online-status reads run concurrently;
   overlapping refreshes are coalesced, and saves request a post-mutation snapshot.

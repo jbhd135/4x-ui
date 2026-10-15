@@ -15,35 +15,43 @@ var clientRemarkDateTokens = regexp.MustCompile(`\d+`)
 var datedClientIdentifier = regexp.MustCompile(`^(?:\d{4}|\d{6}|\d{8})-(.+)$`)
 
 func (s *SubService) clientLookupRemark(inbound *model.Inbound, email, extra string) string {
-	parts := []string{common.ClientCode(email)}
-	if !common.IsDatedClientName(email) {
-		parts = append(parts, strings.TrimSpace(email))
-	}
+	label := "高速"
 	clients, _ := s.inboundService.GetClients(inbound)
 	var expiry int64
 	found := false
 	for _, client := range clients {
 		if client.Email == email {
 			expiry, found = client.ExpiryTime, true
+			if client.SocksProxyEnabled {
+				label = "家宽"
+			}
 			break
 		}
 	}
+	if name := strings.TrimSpace(email); name != "" && !common.IsDatedClientName(name) {
+		label = name
+	}
+	parts := []string{label}
 	if found {
 		switch {
 		case expiry > 0:
 			parts = append(parts, time.UnixMilli(expiry).In(s.remarkDateNow().Location()).Format("06-01-02"))
 		case expiry < 0:
 			parts = append(parts, fmt.Sprintf("启用后%d天", -expiry/86400000))
-		case common.IsDatedClientName(email):
+		case strings.TrimSpace(email) == "" || common.IsDatedClientName(email):
 			parts = append(parts, "不限期")
 		}
 	} else if date, ok := parseClientRemarkExpiryDate(inbound.Remark, s.remarkDateNow()); ok {
 		parts = append(parts, date.Format("06-01-02"))
 	}
-	if extra = strings.TrimSpace(extra); extra != "" {
-		parts = append(parts, extra)
+	remark := strings.Join(parts, "| ")
+	if code := common.ClientCode(email); code != "" {
+		remark = code + "|" + remark
 	}
-	return strings.Join(parts, " | ")
+	if extra = strings.TrimSpace(extra); extra != "" {
+		remark += " | " + extra
+	}
+	return remark
 }
 
 func (s *SubService) clientVisibleInboundRemark(remark string) (string, bool) {

@@ -79,12 +79,12 @@ func TestFormatClientExpiryRemark(t *testing.T) {
 	}
 }
 
-func TestGenRemarkKeepsClientSuffixForExpiryRemark(t *testing.T) {
+func TestGenRemarkUsesRouteLabelForExpiryRemark(t *testing.T) {
 	service := &SubService{remarkModel: "-ieo"}
 	inbound := &model.Inbound{Remark: "0615"}
 
 	got := service.genRemark(inbound, "20260615-ayd3o269", "")
-	want := fmt.Sprintf("ayd3o269 | %02d-06-15", time.Now().Year()%100)
+	want := fmt.Sprintf("ayd3o269|高速| %02d-06-15", time.Now().Year()%100)
 	if got != want {
 		t.Fatalf("genRemark() = %q, want %q", got, want)
 	}
@@ -95,17 +95,22 @@ func TestClientLookupRemarksAndFormats(t *testing.T) {
 	for _, tt := range []struct {
 		email  string
 		expiry int64
+		home   bool
 		want   string
 	}{
-		{"20261008-azxd4p", expiry, "azxd4p | 26-10-08"},
-		{"20261008-azxd4p", expiry + 86400000, "azxd4p | 26-10-09"},
-		{"20261008-azxd4p", 0, "azxd4p | 不限期"},
-		{"20261008-azxd4p", -86400000, "azxd4p | 启用后1天"},
-		{"临时测试", 0, "cf83bbad4 | 临时测试"},
-		{"test", expiry, "cafd071e5 | test | 26-10-08"},
+		{"20261008-azxd4p", expiry, false, "azxd4p|高速| 26-10-08"},
+		{"20261008-azxd4p", expiry, true, "azxd4p|家宽| 26-10-08"},
+		{"20261008-azxd4p", expiry + 86400000, false, "azxd4p|高速| 26-10-09"},
+		{"20261009-azxd4p", expiry + 86400000, false, "azxd4p|高速| 26-10-09"},
+		{"20261008-azxd4p", 0, false, "azxd4p|高速| 不限期"},
+		{"20261008-azxd4p", 0, true, "azxd4p|家宽| 不限期"},
+		{"20261008-azxd4p", -86400000, false, "azxd4p|高速| 启用后1天"},
+		{"临时测试", 0, false, "cf83bbad4|临时测试"},
+		{"test", expiry, false, "cafd071e5|test| 26-10-08"},
+		{"临时测试", expiry, true, "cf83bbad4|临时测试| 26-10-08"},
 	} {
 		t.Run(tt.want, func(t *testing.T) {
-			client := model.Client{Email: tt.email, ID: "11111111-2222-4333-8444-555555555555", Security: "auto", ExpiryTime: tt.expiry, Enable: true}
+			client := model.Client{Email: tt.email, ID: "11111111-2222-4333-8444-555555555555", Security: "auto", ExpiryTime: tt.expiry, Enable: true, SocksProxyEnabled: tt.home}
 			settings, _ := json.Marshal(map[string]any{"clients": []model.Client{client}})
 			inbound := &model.Inbound{Remark: "shared-reality", Protocol: model.VLESS, Port: 443, Settings: string(settings), StreamSettings: `{"network":"tcp","security":"none","tcpSettings":{"header":{"type":"none"}}}`}
 			s := &SubService{remarkModel: "-i", address: "example.com"}
@@ -143,9 +148,23 @@ func TestClientLookupRemarksAndFormats(t *testing.T) {
 			s.showInfo = true
 			inbound.ClientStats = []xray.ClientTraffic{{Email: client.Email, Enable: false}}
 			if got := s.genRemark(inbound, client.Email, ""); got != tt.want+" | ⛔️N/A" {
-				t.Fatalf("disabled name must still start with code: %q", got)
+				t.Fatalf("disabled name must preserve its route label: %q", got)
 			}
 		})
+	}
+}
+
+func TestRouteNamesKeepClashSubscriptionNamesUnique(t *testing.T) {
+	proxies := []map[string]any{
+		{"name": "njnshs|高速| 26-12-30"},
+		{"name": "njnshs|家宽| 26-12-30"},
+		{"name": "njnshs|高速| 26-12-30"},
+	}
+	want := []string{"njnshs|高速| 26-12-30", "njnshs|家宽| 26-12-30", "njnshs|高速| 26-12-30 2"}
+	for i, name := range normalizeClashProxyNames(proxies) {
+		if name != want[i] || proxies[i]["name"] != name {
+			t.Fatalf("proxy %d name = %q, want %q", i, name, want[i])
+		}
 	}
 }
 

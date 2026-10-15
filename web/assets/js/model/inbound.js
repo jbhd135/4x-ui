@@ -207,8 +207,8 @@ function clientLookupCode(email) {
 
 function clientLookupRemark(client, extra = '') {
     const name = String(client?.email || '').trim();
-    const parts = [clientLookupCode(name)];
-    if (!isDatedClientName(name)) parts.push(name);
+    const parts = [name && !isDatedClientName(name) ? name :
+        (client?.socksProxyEnabled === true ? '家宽' : '高速')];
     const expiryTime = Number(client?.expiryTime || 0);
     if (expiryTime > 0) {
         const date = new Date(expiryTime);
@@ -219,11 +219,11 @@ function clientLookupRemark(client, extra = '') {
         parts.push(`${value('year')}-${value('month')}-${value('day')}`);
     } else if (expiryTime < 0) {
         parts.push(`启用后${Math.trunc(-expiryTime / 86400000)}天`);
-    } else if (isDatedClientName(name)) {
+    } else if (!name || isDatedClientName(name)) {
         parts.push('不限期');
     }
-    if (String(extra || '').trim()) parts.push(String(extra).trim());
-    return parts.filter(Boolean).join(' | ');
+    const remark = [clientLookupCode(name), parts.filter(Boolean).join('| ')].filter(Boolean).join('|');
+    return String(extra || '').trim() ? `${remark} | ${String(extra).trim()}` : remark;
 }
 
 class XrayCommonClass {

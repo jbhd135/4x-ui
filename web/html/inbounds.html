@@ -1,4 +1,10 @@
 {{ template "page/head_start" .}}
+<style>
+  .quick-client-device-presets { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); width: 100%; }
+  .quick-client-device-presets .ant-radio-button-wrapper { padding: 0; text-align: center; min-width: 0; }
+  .dark .quick-client-add-form .ant-form-extra,
+  .dark .quick-client-add-form .ant-form-item-control:not(.has-error) .ant-form-explain { color: var(--dark-color-text-primary); }
+</style>
 {{ template "page/head_end" .}}
 
 {{ template "page/body_start" .}}
@@ -1019,6 +1025,14 @@
           <a-icon slot="prefix" type="calendar"></a-icon>
         </a-input>
       </a-form-item>
+      <a-form-item label="家宽">
+        <a-tooltip :title="canUseQuickClientHome() ? 'SOCKS5 静态出口' : '此入站尚未启用 SOCKS5 静态出口'">
+          <span>
+            <a-switch v-model="quickAddClientModal.socksProxyEnabled" aria-label="家宽"
+              :disabled="quickAddClientModal.saving || !canUseQuickClientHome()"></a-switch>
+          </span>
+        </a-tooltip>
+      </a-form-item>
       <a-form-item label="快捷选择">
         <a-space :size="8" style="display: flex; flex-wrap: wrap;">
           <a-button v-for="months in [1, 3, 6, 12]" :key="months"
@@ -1028,9 +1042,19 @@
           </a-button>
         </a-space>
       </a-form-item>
-      <a-form-item label="设备限制" extra="0 表示不限制设备数量">
-        <a-input-number v-model.number="quickAddClientModal.deviceLimit" :min="0" :max="9999"
-          :precision="0" :step="1" style="width: 100%;"></a-input-number>
+      <a-form-item label="设备限制">
+        <a-radio-group :value="quickAddClientModal.deviceLimitPreset" button-style="solid"
+          class="quick-client-device-presets" :disabled="quickAddClientModal.saving"
+          @change="setQuickClientDevicePreset($event.target.value)">
+          <a-radio-button v-for="limit in [1, 2, 4, 0]" :key="limit" :value="limit">
+            [[ limit === 0 ? '无限' : limit ]]
+          </a-radio-button>
+          <a-radio-button value="custom">自定义</a-radio-button>
+        </a-radio-group>
+        <a-input-number v-if="quickAddClientModal.deviceLimitPreset === 'custom'"
+          v-model.number="quickAddClientModal.deviceLimit" :min="0" :max="9999" aria-label="自定义设备数量"
+          :disabled="quickAddClientModal.saving" :precision="0" :step="1"
+          style="width: 100%; margin-top: 8px;"></a-input-number>
       </a-form-item>
       <a-alert type="info" show-icon
         message="客户端身份信息将自动生成；自定义名称会用于节点名称，创建成功后专属节点链接会自动复制。"></a-alert>
@@ -1612,7 +1636,10 @@
         expiryError: '',
         expiryDisplay: '',
         expiryPresetMonths: null,
+        socksProxyEnabled: false,
         deviceLimit: 1,
+        deviceLimitPreset: 1,
+        customDeviceLimit: 1,
       },
       isRefreshEnabled: localStorage.getItem("isRefreshEnabled") === "true" ? true : false,
       refreshing: false,
@@ -2500,8 +2527,27 @@
         this.quickAddClientModal.expiryError = '';
         this.quickAddClientModal.expiryDisplay = '';
         this.quickAddClientModal.expiryPresetMonths = null;
+        this.quickAddClientModal.socksProxyEnabled = false;
         this.quickAddClientModal.deviceLimit = 1;
+        this.quickAddClientModal.deviceLimitPreset = 1;
+        this.quickAddClientModal.customDeviceLimit = 1;
         this.quickAddClientModal.visible = true;
+      },
+      canUseQuickClientHome(dbInbound = this.dbInbounds.find(row => row.id === this.quickAddClientModal.inboundId)) {
+        return !!dbInbound && dbInbound.socksProxyEnabled === true &&
+          !!String(dbInbound.socksProxyHost || '').trim() &&
+          Number.isInteger(Number(dbInbound.socksProxyPort)) &&
+          Number(dbInbound.socksProxyPort) >= 1 && Number(dbInbound.socksProxyPort) <= 65535;
+      },
+      setQuickClientDevicePreset(preset) {
+        if (![1, 2, 4, 0, 'custom'].includes(preset)) return;
+        const modal = this.quickAddClientModal;
+        if (modal.deviceLimitPreset === 'custom' && Number.isInteger(modal.deviceLimit) &&
+          modal.deviceLimit >= 0 && modal.deviceLimit <= 9999) {
+          modal.customDeviceLimit = modal.deviceLimit;
+        }
+        modal.deviceLimitPreset = preset;
+        modal.deviceLimit = preset === 'custom' ? modal.customDeviceLimit : preset;
       },
       resolveQuickClientExpiry(value) {
         const digits = String(value || '').replace(/\D/g, '').slice(0, 8);
@@ -2581,7 +2627,7 @@
         this.quickAddClientModal.expiryDisplay = `将于${expiry.format('YYYY年M月D日')}23:59:59到期`;
         this.quickAddClientModal.expiryPresetMonths = normalizedMonths;
       },
-      createQuickClient(inbound, expiryTime, deviceLimit, clientName = '') {
+      createQuickClient(inbound, expiryTime, deviceLimit, clientName = '', socksProxyEnabled = false) {
         let client;
         switch (inbound.protocol) {
           case Protocols.VMESS:
@@ -2621,6 +2667,7 @@
           }
         }
         client.limitIp = normalizedDeviceLimit;
+        client.socksProxyEnabled = socksProxyEnabled === true;
         client.expiryTime = expiryTime;
         client.enable = true;
         if (inbound.protocol === Protocols.VLESS) {
@@ -2664,6 +2711,15 @@
           this.$message.error('未找到对应入站');
           return;
         }
+        if (modal.socksProxyEnabled && !this.canUseQuickClientHome(dbInbound)) {
+          this.$message.warning('此入站尚未启用有效的 SOCKS5 静态出口');
+          return;
+        }
+        if (modal.deviceLimit === null || modal.deviceLimit === '' ||
+          !Number.isInteger(Number(modal.deviceLimit)) || Number(modal.deviceLimit) < 0 || Number(modal.deviceLimit) > 9999) {
+          this.$message.warning('设备数量须为0到9999之间的整数');
+          return;
+        }
         const inbound = dbInbound.toInbound();
         const clientName = String(modal.clientName || '').trim();
         if (clientName && Array.isArray(inbound.clients) && inbound.clients.some(client =>
@@ -2671,7 +2727,7 @@
           this.$message.warning('客户端名称已存在，请换一个名称');
           return;
         }
-        const client = this.createQuickClient(inbound, modal.expiry.valueOf(), modal.deviceLimit, clientName);
+        const client = this.createQuickClient(inbound, modal.expiry.valueOf(), modal.deviceLimit, clientName, modal.socksProxyEnabled);
         if (!client) {
           this.$message.error('该协议不支持添加客户端');
           return;
