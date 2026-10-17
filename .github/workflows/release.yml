@@ -17,12 +17,21 @@ jobs:
           go-version: '1.26.3'
       - run: go vet ./...
       - run: go test -race ./...
+      - name: Test account isolation against the release Xray core
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/4x-ui-core-test
+          curl -fLsS --retry 3 https://github.com/jbhd135/4x-ui/releases/download/v4.0.0/x-ui-linux-amd64.tar.gz -o /tmp/4x-ui-core-test/runtime.tar.gz
+          tar -xzf /tmp/4x-ui-core-test/runtime.tar.gz -C /tmp/4x-ui-core-test x-ui/bin/xray-linux-amd64
+          echo '345781b0068ff2535360f90bb2eb20551950bb4f92bc7d44d2e6c693fa7dc210  /tmp/4x-ui-core-test/x-ui/bin/xray-linux-amd64' | sha256sum -c -
+          XRAY_TEST_BINARY=/tmp/4x-ui-core-test/x-ui/bin/xray-linux-amd64 go test -race ./xray -run TestClientIPRoutingRealCore -v
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - run: TZ=UTC node scripts/test-client-names.cjs
       - run: node scripts/test-client-create.cjs
       - run: node scripts/test-setting-defaults.cjs
+      - run: node scripts/test-client-ip-migration.cjs
       - run: bash -n install.sh update.sh scripts/install-selfhosted.sh scripts/package-release.sh
       - run: shellcheck install.sh update.sh scripts/install-selfhosted.sh scripts/package-release.sh
       - name: Compile source snapshot (not the production release binary)

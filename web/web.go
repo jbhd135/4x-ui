@@ -323,7 +323,7 @@ func (s *Server) startTask() {
 	}()
 
 	// check client ips from log file every 10 sec
-	s.cron.AddJob("@every 10s", job.NewCheckClientIpJob())
+	s.cron.AddJob("@every 10s", job.NewCheckClientIpJob(&s.xrayService))
 
 	// check inbound-level device limits from access log every 10 sec
 	s.cron.AddJob("@every 10s", job.NewCheckDeviceLimitJob(&s.xrayService))

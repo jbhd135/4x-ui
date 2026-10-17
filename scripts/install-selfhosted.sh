@@ -20,6 +20,8 @@ HOST="${PANEL_PUBLIC_HOST:-}"
 YES=false NO_PROMPT=false SKIP_START=false CONFIGURE=false
 OFFLINE="" WORK="" BACKUP=""
 CHANGED=false DONE=false WAS_ACTIVE=false WAS_ENABLED=false
+JAIL_MIGRATED=false JAIL_WAS_ACTIVE=false
+JAIL_OVERRIDE=/etc/fail2ban/jail.d/zz-4x-ui-client-ip.local
 
 log() { printf '[4x-ui] %s\n' "$*"; }
 die() { printf '[4x-ui] Error: %s\n' "$*" >&2; exit 1; }
@@ -151,9 +153,33 @@ rollback() {
   [[ ! -d "$BACKUP/database" ]] || cp -a "$BACKUP/database" "$DB"
   if [[ -f "$BACKUP/unit" ]]; then cp -a "$BACKUP/unit" "$UNIT"; else rm -f "$UNIT"; fi
   if [[ -f "$BACKUP/cli" ]]; then cp -a "$BACKUP/cli" "$CLI"; else rm -f "$CLI"; fi
+  if $JAIL_MIGRATED; then
+    if [[ -f "$BACKUP/client-ip-jail" ]]; then
+      cp -a "$BACKUP/client-ip-jail" "$JAIL_OVERRIDE"
+    else
+      rm -f "$JAIL_OVERRIDE"
+    fi
+    if $JAIL_WAS_ACTIVE; then fail2ban-client reload 3x-ipl || log "Check legacy 3x-ipl jail manually."; fi
+  fi
   systemctl daemon-reload
   if $WAS_ENABLED; then systemctl enable "$SERVICE" >/dev/null; else systemctl disable "$SERVICE" >/dev/null 2>&1 || true; fi
   if $WAS_ACTIVE; then systemctl start "$SERVICE" || log "Check the previous service manually: systemctl status $SERVICE"; fi
+}
+migrate_client_ip_jail() {
+  local version
+  version=$("$ROOT/x-ui" -v)
+  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 0
+  # The current installer can also install a pinned pre-4.0.8 release.
+  [[ $(printf '%s\n' 4.0.8 "$version" | sort -V | head -n 1) == 4.0.8 ]] || return 0
+  command -v fail2ban-client >/dev/null || return 0
+  [[ -d "$(dirname "$JAIL_OVERRIDE")" ]] || return 0
+  [[ ! -e "$JAIL_OVERRIDE" ]] || cp -a "$JAIL_OVERRIDE" "$BACKUP/client-ip-jail"
+  if fail2ban-client status 3x-ipl >/dev/null 2>&1; then JAIL_WAS_ACTIVE=true; fi
+  JAIL_MIGRATED=true
+  # Only the obsolete customer-IP jail is retired. SSH and other jails stay intact.
+  printf '[3x-ipl]\nenabled = false\n' > "$JAIL_OVERRIDE"
+  if $JAIL_WAS_ACTIVE; then fail2ban-client stop 3x-ipl; fi
+  log "Legacy 3x-ipl IP bans disabled; account-scoped device limits are active."
 }
 cleanup() {
   local status=$?
@@ -273,6 +299,7 @@ if ! $SKIP_START; then
   sleep 2
   systemctl is-active --quiet "$SERVICE" || die "Panel exited after startup."
 fi
+migrate_client_ip_jail
 DONE=true
 log "Installed release: $INSTALL_TAG; program: $("$ROOT/x-ui" -v)"
 log "Backup directory: $BACKUP"

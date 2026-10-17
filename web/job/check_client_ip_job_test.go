@@ -1,170 +1,153 @@
 package job
 
 import (
+	"github.com/mhsanaei/3x-ui/v2/xray"
 	"reflect"
 	"testing"
 	"time"
 )
 
-func TestParseClientAccessTimestampUsesServerTimezone(t *testing.T) {
-	location := time.FixedZone("Asia/Shanghai", 8*60*60)
-	now := time.Date(2026, time.September, 3, 12, 0, 30, 0, location)
+var testAccount = clientIPKey{"inbound-test", "customer-a"}
+var testStart = time.Date(2026, 10, 17, 12, 0, 0, 0, time.FixedZone("CST", 8*3600))
 
-	got := parseClientAccessTimestamp("2026/09/03 12:00:00", now)
-	want := time.Date(2026, time.September, 3, 12, 0, 0, 0, location).Unix()
-
-	if got != want {
-		t.Fatalf("access timestamp should use the server timezone: got %d, want %d", got, want)
-	}
-}
-
-func TestParseClientAccessTimestampRejectsFutureTime(t *testing.T) {
-	location := time.FixedZone("Asia/Shanghai", 8*60*60)
-	now := time.Date(2026, time.September, 3, 12, 0, 0, 0, location)
-
-	got := parseClientAccessTimestamp("2026/09/03 20:00:00", now)
-
-	if got != now.Unix() {
-		t.Fatalf("implausible future timestamp should fall back to scan time: got %d, want %d", got, now.Unix())
-	}
-}
-
-func TestMergeClientIps_EvictsStaleOldEntries(t *testing.T) {
-	// #4077: after a ban expires, a single IP that reconnects used to get
-	// banned again immediately because a long-disconnected IP stayed in the
-	// DB with an ancient timestamp and kept "protecting" itself against
-	// eviction. Guard against that regression here.
-	old := []IPWithTimestamp{
-		{IP: "1.1.1.1", Timestamp: 100},  // stale — client disconnected long ago
-		{IP: "2.2.2.2", Timestamp: 1900}, // fresh — still connecting
-	}
-	new := []IPWithTimestamp{
-		{IP: "2.2.2.2", Timestamp: 2000}, // same IP, newer log line
-	}
-
-	got := mergeClientIps(old, new, 1000)
-
-	want := map[string]int64{"2.2.2.2": 2000}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("stale 1.1.1.1 should have been dropped\ngot:  %v\nwant: %v", got, want)
-	}
-}
-
-func TestMergeClientIps_KeepsFreshOldEntriesUnchanged(t *testing.T) {
-	// Backwards-compat: entries that aren't stale are still carried forward,
-	// so enforcement survives access-log rotation.
-	old := []IPWithTimestamp{
-		{IP: "1.1.1.1", Timestamp: 1500},
-	}
-	got := mergeClientIps(old, nil, 1000)
-
-	want := map[string]int64{"1.1.1.1": 1500}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("fresh old IP should have been retained\ngot:  %v\nwant: %v", got, want)
-	}
-}
-
-func TestMergeClientIps_PrefersLaterTimestampForSameIp(t *testing.T) {
-	old := []IPWithTimestamp{{IP: "1.1.1.1", Timestamp: 1500}}
-	new := []IPWithTimestamp{{IP: "1.1.1.1", Timestamp: 1700}}
-
-	got := mergeClientIps(old, new, 1000)
-
-	if got["1.1.1.1"] != 1700 {
-		t.Fatalf("expected latest timestamp 1700, got %d", got["1.1.1.1"])
-	}
-}
-
-func TestMergeClientIps_DropsStaleNewEntries(t *testing.T) {
-	// A log line with a clock-skewed old timestamp must not resurrect a
-	// stale IP past the cutoff.
-	new := []IPWithTimestamp{{IP: "1.1.1.1", Timestamp: 500}}
-	got := mergeClientIps(nil, new, 1000)
-
-	if len(got) != 0 {
-		t.Fatalf("stale new IP should have been dropped, got %v", got)
-	}
-}
-
-func TestMergeClientIps_NoStaleCutoffStillWorks(t *testing.T) {
-	// Defensive: a zero cutoff (e.g. during very first run on a fresh
-	// install) must not over-evict.
-	old := []IPWithTimestamp{{IP: "1.1.1.1", Timestamp: 100}}
-	new := []IPWithTimestamp{{IP: "2.2.2.2", Timestamp: 200}}
-
-	got := mergeClientIps(old, new, 0)
-
-	want := map[string]int64{"1.1.1.1": 100, "2.2.2.2": 200}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("zero cutoff should keep everything\ngot:  %v\nwant: %v", got, want)
-	}
-}
-
-func collectIps(entries []IPWithTimestamp) []string {
-	out := make([]string, 0, len(entries))
-	for _, e := range entries {
-		out = append(out, e.IP)
+func observe(key clientIPKey, now time.Time, ips ...string) []clientIPObservation {
+	out := make([]clientIPObservation, 0, len(ips))
+	for _, ip := range ips {
+		out = append(out, clientIPObservation{key, ip, now})
 	}
 	return out
 }
 
-func TestPartitionLiveIps_SingleLiveNotStarvedByStillFreshHistoricals(t *testing.T) {
-	// #4091: db holds A, B, C from minutes ago (still in the 30min
-	// window) but they're not connecting anymore. only D is. old code
-	// merged all four, sorted ascending, kept [A,B,C] and banned D
-	// every tick. pin the new rule: only live ips count toward the limit.
-	ipMap := map[string]int64{
-		"A": 1000,
-		"B": 1100,
-		"C": 1200,
-		"D": 2000,
+func continuouslyOverLimit(j *CheckClientIpJob) []xray.ClientIPBlock {
+	limits := map[clientIPKey]int{testAccount: 1}
+	j.evaluate(limits, observe(testAccount, testStart, "192.0.2.1"), testStart)
+	var blocks []xray.ClientIPBlock
+	for elapsed := 10; elapsed <= 100; elapsed += 10 {
+		now := testStart.Add(time.Duration(elapsed) * time.Second)
+		blocks = j.evaluate(limits, observe(testAccount, now, "192.0.2.1", "192.0.2.2"), now)
 	}
-	observed := map[string]bool{"D": true}
+	return blocks
+}
 
-	live, historical := partitionLiveIps(ipMap, observed)
-
-	if got := collectIps(live); !reflect.DeepEqual(got, []string{"D"}) {
-		t.Fatalf("live set should only contain the ip observed this scan\ngot:  %v\nwant: [D]", got)
+func TestClientIPGraceAndRecovery(t *testing.T) {
+	j := NewCheckClientIpJob(nil)
+	limits := map[clientIPKey]int{testAccount: 1}
+	j.evaluate(limits, observe(testAccount, testStart, "192.0.2.1"), testStart)
+	for elapsed := 10; elapsed <= 110; elapsed += 10 {
+		now := testStart.Add(time.Duration(elapsed) * time.Second)
+		got := j.evaluate(limits, observe(testAccount, now, "192.0.2.1", "192.0.2.2"), now)
+		if elapsed < 100 && len(got) != 0 {
+			t.Fatalf("blocked inside grace at %ds: %v", elapsed, got)
+		}
+		if elapsed >= 100 && !reflect.DeepEqual(got, []xray.ClientIPBlock{{Inbound: testAccount.Inbound, Email: testAccount.Email, IPs: []string{"192.0.2.2"}}}) {
+			t.Fatalf("wrong restriction: %v", got)
+		}
 	}
-	if got := collectIps(historical); !reflect.DeepEqual(got, []string{"A", "B", "C"}) {
-		t.Fatalf("historical set should contain db-only ips in ascending order\ngot:  %v\nwant: [A B C]", got)
+	// Incumbent leaves. The previously restricted IP inherits the slot.
+	for elapsed := 120; elapsed <= 150; elapsed += 10 {
+		now := testStart.Add(time.Duration(elapsed) * time.Second)
+		got := j.evaluate(limits, observe(testAccount, now, "192.0.2.2"), now)
+		if elapsed == 150 && len(got) != 0 {
+			t.Fatalf("restriction did not recover: %v", got)
+		}
 	}
 }
 
-func TestPartitionLiveIps_ConcurrentLiveIpsStillBanNewcomers(t *testing.T) {
-	// keep the "protect original, ban newcomer" policy when several ips
-	// are really live. with limit=1, A must stay and B must be banned.
-	ipMap := map[string]int64{
-		"A": 5000,
-		"B": 5500,
-	}
-	observed := map[string]bool{"A": true, "B": true}
-
-	live, historical := partitionLiveIps(ipMap, observed)
-
-	if got := collectIps(live); !reflect.DeepEqual(got, []string{"A", "B"}) {
-		t.Fatalf("both live ips should be in the live set, ascending\ngot:  %v\nwant: [A B]", got)
-	}
-	if len(historical) != 0 {
-		t.Fatalf("no historical ips expected, got %v", historical)
+func TestClientIPNetworkSwitchNeverBlocked(t *testing.T) {
+	j := NewCheckClientIpJob(nil)
+	limits := map[clientIPKey]int{testAccount: 1}
+	j.evaluate(limits, observe(testAccount, testStart, "192.0.2.1"), testStart)
+	for elapsed := 10; elapsed <= 180; elapsed += 10 {
+		now := testStart.Add(time.Duration(elapsed) * time.Second)
+		if got := j.evaluate(limits, observe(testAccount, now, "192.0.2.2"), now); len(got) != 0 {
+			t.Fatalf("switch blocked: %v", got)
+		}
 	}
 }
 
-func TestPartitionLiveIps_EmptyScanLeavesDbIntact(t *testing.T) {
-	// quiet tick: nothing observed => nothing live. everything merged
-	// is historical. keeps the panel from wiping recent-but-idle ips.
-	ipMap := map[string]int64{
-		"A": 1000,
-		"B": 1100,
+func TestClientIPQuietRecoveryAndConfigurationChanges(t *testing.T) {
+	for _, mode := range []string{"quiet", "unlimited", "deleted", "limit-increased"} {
+		t.Run(mode, func(t *testing.T) {
+			j := NewCheckClientIpJob(nil)
+			if len(continuouslyOverLimit(j)) != 1 {
+				t.Fatal("precondition: expected restriction")
+			}
+			limits := map[clientIPKey]int{testAccount: 1}
+			now := testStart.Add(110 * time.Second)
+			obs := observe(testAccount, now, "192.0.2.1", "192.0.2.2")
+			switch mode {
+			case "quiet":
+				now = testStart.Add(131 * time.Second)
+				obs = nil
+			case "unlimited":
+				limits[testAccount] = 0
+			case "deleted":
+				delete(limits, testAccount)
+			case "limit-increased":
+				limits[testAccount] = 2
+			}
+			if got := j.evaluate(limits, obs, now); len(got) != 0 {
+				t.Fatalf("not restored: %v", got)
+			}
+		})
 	}
-	observed := map[string]bool{}
+}
 
-	live, historical := partitionLiveIps(ipMap, observed)
-
-	if len(live) != 0 {
-		t.Fatalf("no live ips expected, got %v", live)
+func TestClientIPIsolationNormalizationAndIndependentGrace(t *testing.T) {
+	j := NewCheckClientIpJob(nil)
+	continuouslyOverLimit(j)
+	other := clientIPKey{testAccount.Inbound, "customer-b"}
+	otherInbound := clientIPKey{"inbound-other", testAccount.Email}
+	limits := map[clientIPKey]int{testAccount: 1, other: 1, otherInbound: 1}
+	now := testStart.Add(110 * time.Second)
+	obs := observe(testAccount, now, "192.0.2.1", "::ffff:192.0.2.1", "192.0.2.2", "2001:db8::3")
+	obs = append(obs, observe(other, now, "192.0.2.2")...)
+	obs = append(obs, observe(otherInbound, now, "192.0.2.2")...)
+	got := j.evaluate(limits, obs, now)
+	if len(got) != 1 || got[0].Email != testAccount.Email || got[0].Inbound != testAccount.Inbound || !reflect.DeepEqual(got[0].IPs, []string{"192.0.2.2"}) {
+		t.Fatalf("cross-account ban or new IP lost grace: %v", got)
 	}
-	if got := collectIps(historical); !reflect.DeepEqual(got, []string{"A", "B"}) {
-		t.Fatalf("all merged entries should flow to historical\ngot:  %v\nwant: [A B]", got)
+	if len(j.active[testAccount]) != 3 {
+		t.Fatal("mapped IPv4 counted twice")
+	}
+}
+
+func TestClientIPActivityAcrossPollsAndStaleHistory(t *testing.T) {
+	j := NewCheckClientIpJob(nil)
+	limits := map[clientIPKey]int{testAccount: 1}
+	for elapsed := 0; elapsed <= 120; elapsed += 10 {
+		now := testStart.Add(time.Duration(elapsed) * time.Second)
+		ip := "192.0.2.1"
+		if elapsed%20 != 0 {
+			ip = "192.0.2.2"
+		}
+		got := j.evaluate(limits, observe(testAccount, now, ip), now)
+		if elapsed == 120 && len(got) != 1 {
+			t.Fatal("alternating scans must retain both active sources")
+		}
+	}
+	j = NewCheckClientIpJob(nil)
+	got := j.evaluate(limits, []clientIPObservation{
+		{testAccount, "192.0.2.1", testStart.Add(-time.Minute)},
+		{testAccount, "192.0.2.2", testStart},
+		{testAccount, "192.0.2.3", testStart.Add(time.Hour)},
+	}, testStart)
+	if len(got) != 0 || len(j.active[testAccount]) != 1 {
+		t.Fatal("stale/future observations used as admission state")
+	}
+}
+
+func TestClientIPParseAndHistory(t *testing.T) {
+	if got := parseClientAccessTimestamp("2026/10/17 12:00:00", testStart); got != testStart.Unix() {
+		t.Fatalf("timezone: %d", got)
+	}
+	for _, bad := range []string{"bad", "2026/10/17 20:00:00"} {
+		if parseClientAccessTimestamp(bad, testStart) != 0 {
+			t.Fatal("accepted invalid/future timestamp")
+		}
+	}
+	got := mergeClientIps([]IPWithTimestamp{{"192.0.2.1", 100}, {"192.0.2.2", 1500}}, []IPWithTimestamp{{"192.0.2.2", 2000}, {"192.0.2.3", 500}}, 1000)
+	if !reflect.DeepEqual(got, map[string]int64{"192.0.2.2": 2000}) {
+		t.Fatalf("history merge: %v", got)
 	}
 }

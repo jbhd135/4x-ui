@@ -29,9 +29,11 @@ var (
 // XrayService provides business logic for Xray process management.
 // It handles starting, stopping, restarting Xray, and managing its configuration.
 type XrayService struct {
-	inboundService InboundService
-	settingService SettingService
-	xrayAPI        xray.XrayAPI
+	inboundService  InboundService
+	settingService  SettingService
+	xrayAPI         xray.XrayAPI
+	clientIPProcess *xray.Process
+	clientIPRoutes  []byte
 }
 
 // IsXrayRunning checks if the Xray process is currently running.
@@ -116,6 +118,9 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 		return nil, err
 	}
 	ensureAccessLogForDeviceLimits(xrayConfig, inbounds)
+	if err := xray.EnsureClientIPRouting(xrayConfig); err != nil {
+		return nil, err
+	}
 	for _, inbound := range inbounds {
 		if !inbound.Enable {
 			continue
