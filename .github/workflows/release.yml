@@ -95,4 +95,7 @@ jobs:
             build/output/x-ui-linux-amd64.tar.gz \
             build/output/SHA256SUMS \
             --title "4x-ui $GITHUB_REF_NAME" \
-            --generate-notes
+            --generate-notes --latest
+          if [[ "$GITHUB_REF_NAME" == v4.0.9 ]] && gh release view v4.0.8 >/dev/null 2>&1; then
+            gh release edit v4.0.8 --prerelease --title "4x-ui v4.0.8 (superseded by v4.0.9)"
+          fi

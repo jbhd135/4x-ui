@@ -8,7 +8,7 @@ const installer = fs.readFileSync(path.join(__dirname, 'install-selfhosted.sh'),
 const fn = installer.match(/^migrate_client_ip_jail\(\) \{[\s\S]*?^\}/m)?.[0];
 assert.ok(fn, 'migration function exists');
 for (const active of ['true', 'false']) {
- for (const version of ['4.0.7', '4.0.8']) {
+ for (const version of ['4.0.7', '4.0.9']) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), '4x-ui-jail-test-'));
   try {
     fs.mkdirSync(path.join(dir, 'backup'));
@@ -33,7 +33,7 @@ for (const active of ['true', 'false']) {
       }
       ${fn}
       migrate_client_ip_jail
-      if [[ "$TEST_VERSION" == 4.0.8 ]]; then
+      if [[ "$TEST_VERSION" == 4.0.9 ]]; then
         $JAIL_MIGRATED
         test "$JAIL_WAS_ACTIVE" = "$TEST_ACTIVE"
       else

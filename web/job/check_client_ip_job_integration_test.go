@@ -31,7 +31,7 @@ func setupIntegrationDB(t *testing.T) {
 
 func TestClientIPDatabasePreservesAccountAndHistory(t *testing.T) {
 	setupIntegrationDB(t)
-	settings := `{"clients":[{"id":"test-uuid","email":"customer-a","enable":true,"limitIp":1,"expiryTime":1900000000000},{"email":"disabled","enable":false,"limitIp":1}]}`
+	settings := `{"clients":[{"id":"test-uuid","email":"customer-a","tgId":"","enable":true,"limitIp":1,"expiryTime":1900000000000},{"email":"disabled","tgId":123,"enable":false,"limitIp":1}]}`
 	inbound := model.Inbound{Tag: testAccount.Inbound, Enable: true, Protocol: model.VLESS, Port: 4321, Settings: settings}
 	if err := database.GetDB().Create(&inbound).Error; err != nil {
 		t.Fatal(err)

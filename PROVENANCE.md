@@ -1,15 +1,15 @@
-# 4x-ui v4.0.8 provenance
+# 4x-ui v4.0.9 provenance
 
 This independent distribution is maintained from the GG Panel source snapshot
 and does not overwrite the existing upstream repositories.
 
-- Internal panel version: `4.0.8`.
+- Internal panel version: `4.0.9`.
 - Panel build: GitHub Actions Ubuntu 24.04, Go 1.26.3, CGO enabled, static
   Linux amd64, trimpath.
 - Xray: `26.4.25`, Linux amd64, copied from the verified `v4.0.0` runtime.
 - Xray executable SHA256:
   `345781b0068ff2535360f90bb2eb20551950bb4f92bc7d44d2e6c693fa7dc210`.
-- `v4.0.8` replaces per-client Fail2Ban bans with account + inbound + source-IP
+- `v4.0.9` replaces per-client Fail2Ban bans with account + inbound + source-IP
   routing restrictions on new connections. A 90-second continuous excess grace
   accommodates network changes; a 30-second activity window is swept every
   10 seconds even without new log lines. Limits are approximate public-IP
@@ -17,6 +17,8 @@ and does not overwrite the existing upstream repositories.
   Recovery does not enable disabled/expired users or restart Xray. Generated
   configs enable RoutingService and preserve normal, WARP and SOCKS5 routes.
   The installer retires only the legacy 3x-ipl jail, preserving SSH protection.
+  Account parsing reads only the fields needed for enforcement, accepting
+  historical records with string-valued Telegram IDs without modifying them.
 - `v4.0.7` exports dated clients as `code|家宽| YY-MM-DD` or
   `code|高速| YY-MM-DD`, using the existing public lookup code and the client's
   SOCKS5 exit flag. Custom names remain supported. Quick creation adds a home

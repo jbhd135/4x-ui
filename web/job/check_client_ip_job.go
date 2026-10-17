@@ -107,13 +107,17 @@ func loadClientIPLimits() (map[clientIPKey]int, error) {
 	limits := make(map[clientIPKey]int)
 	for _, inbound := range inbounds {
 		var settings struct {
-			Clients []model.Client `json:"clients"`
+			Clients []struct {
+				Email   string `json:"email"`
+				Enable  *bool  `json:"enable"`
+				LimitIP int    `json:"limitIp"`
+			} `json:"clients"`
 		}
 		if err := json.Unmarshal([]byte(inbound.Settings), &settings); err != nil {
 			return nil, fmt.Errorf("inbound %d settings: %w", inbound.Id, err)
 		}
 		for _, c := range settings.Clients {
-			if c.Enable && c.Email != "" && c.LimitIP > 0 {
+			if (c.Enable == nil || *c.Enable) && c.Email != "" && c.LimitIP > 0 {
 				limits[clientIPKey{inbound.Tag, c.Email}] = c.LimitIP
 			}
 		}

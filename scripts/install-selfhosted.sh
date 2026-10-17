@@ -169,8 +169,8 @@ migrate_client_ip_jail() {
   local version
   version=$("$ROOT/x-ui" -v)
   [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 0
-  # The current installer can also install a pinned pre-4.0.8 release.
-  [[ $(printf '%s\n' 4.0.8 "$version" | sort -V | head -n 1) == 4.0.8 ]] || return 0
+  # The current installer can also install a pinned pre-4.0.9 release.
+  [[ $(printf '%s\n' 4.0.9 "$version" | sort -V | head -n 1) == 4.0.9 ]] || return 0
   command -v fail2ban-client >/dev/null || return 0
   [[ -d "$(dirname "$JAIL_OVERRIDE")" ]] || return 0
   [[ ! -e "$JAIL_OVERRIDE" ]] || cp -a "$JAIL_OVERRIDE" "$BACKUP/client-ip-jail"
